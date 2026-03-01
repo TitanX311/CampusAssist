@@ -4,6 +4,7 @@ import '../models/post_model.dart';
 import '../services/data_service.dart';
 import '../theme/app_theme.dart';
 import 'package:timeago/timeago.dart' as timeago;
+import 'campus_map_screen.dart';
 
 class PostDetailScreen extends StatefulWidget {
   final Post post;
@@ -30,11 +31,12 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   Future<void> _loadAnswers() async {
     final ans = await _ds.getAnswers(_post.id);
-    if (mounted)
+    if (mounted) {
       setState(() {
         _answers = ans;
         _loading = false;
       });
+    }
   }
 
   Future<void> _upvotePost() async {
@@ -188,27 +190,10 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                 ),
                               ),
                               if (_post.locationLabel != null) ...[
-                                const SizedBox(height: 12),
-                                OutlinedButton.icon(
-                                  onPressed: () => _showMapDialog(),
-                                  icon: const Icon(Icons.map_rounded, size: 15),
-                                  label: Text(
-                                    'View on Campus Map: ${_post.locationLabel}',
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: AppTheme.primary,
-                                    side: const BorderSide(
-                                      color: AppTheme.primary,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 8,
-                                    ),
-                                  ),
+                                const SizedBox(height: 14),
+                                _CampusMapBanner(
+                                  locationLabel: _post.locationLabel!,
+                                  onTap: () => _openCampusMap(),
                                 ),
                               ],
                               const SizedBox(height: 14),
@@ -439,79 +424,16 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     );
   }
 
-  void _showMapDialog() {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.map_rounded, color: AppTheme.primary),
-            SizedBox(width: 8),
-            Text('Campus Map'),
-          ],
+  void _openCampusMap() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CampusMapScreen(
+          collegeId: _post.collegeId,
+          collegeName: _post.collegeName,
+          locationLabel: _post.locationLabel,
+          postTitle: _post.title,
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              height: 200,
-              decoration: BoxDecoration(
-                color: AppTheme.surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.divider),
-              ),
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.location_on_rounded,
-                      size: 48,
-                      color: AppTheme.primary.withOpacity(0.5),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _post.locationLabel ?? '',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Map integration ready\nConnect to Google Maps API',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppTheme.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            // TODO: Integrate google_maps_flutter here
-            const Text(
-              'Integrate google_maps_flutter package\nwith campus GeoJSON overlay',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 11, color: AppTheme.textLight),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-          ElevatedButton.icon(
-            onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.open_in_new_rounded, size: 14),
-            label: const Text('Open Maps'),
-          ),
-        ],
       ),
     );
   }
@@ -608,6 +530,98 @@ class _AnswerCard extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Campus Map Banner widget (used in post detail) ───────────────────────────
+class _CampusMapBanner extends StatelessWidget {
+  final String locationLabel;
+  final VoidCallback onTap;
+
+  const _CampusMapBanner({required this.locationLabel, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              AppTheme.primary.withOpacity(0.08),
+              AppTheme.primaryLight.withOpacity(0.06),
+            ],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+          ),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.primary.withOpacity(0.2)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppTheme.primary.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.map_rounded,
+                color: AppTheme.primary,
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'View on Campus Map',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.location_on_rounded,
+                        size: 11,
+                        color: AppTheme.textSecondary,
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        locationLabel,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: AppTheme.primary,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 12,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

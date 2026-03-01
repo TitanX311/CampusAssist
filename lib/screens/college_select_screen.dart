@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/post_model.dart';
 import '../services/data_service.dart';
 import '../theme/app_theme.dart';
-import 'main_shell.dart';
+import 'main_screen.dart';
 
 class CollegeSelectScreen extends StatefulWidget {
   const CollegeSelectScreen({super.key});

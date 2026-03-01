@@ -1,8 +1,10 @@
 // lib/screens/auth_gate.dart
 import 'package:campusassist/screens/home_screen.dart';
+import 'package:campusassist/screens/main_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
+import '../widgets/social_button.dart';
 import 'college_select_screen.dart';
 
 class AuthScreen extends StatefulWidget {
@@ -25,6 +27,7 @@ class _AuthScreenState extends State<AuthScreen>
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
+
   // final _formKey = GlobalKey<FormState>();
 
   @override
@@ -59,7 +62,19 @@ class _AuthScreenState extends State<AuthScreen>
       setState(() => _loading = false);
       Navigator.of(
         context,
-      ).pushReplacement(MaterialPageRoute(builder: (_) => const HomeScreen()));
+      ).pushReplacement(MaterialPageRoute(builder: (_) => const MainShell()));
+    }
+  }
+
+  Future<void> _createAccount() async {
+    // if (!_formKey.currentState!.validate()) return;
+    setState(() => _loading = true);
+    await Future.delayed(const Duration(milliseconds: 1200));
+    if (mounted) {
+      setState(() => _loading = false);
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const CollegeSelectScreen()),
+      );
     }
   }
 
@@ -305,14 +320,14 @@ class _AuthScreenState extends State<AuthScreen>
                                 ],
 
                                 // Email
-                                _FieldLabel('College Email'),
+                                _FieldLabel('Email'),
                                 const SizedBox(height: 6),
                                 TextFormField(
                                   controller: _emailCtrl,
                                   keyboardType: TextInputType.emailAddress,
                                   textInputAction: TextInputAction.next,
                                   decoration: const InputDecoration(
-                                    hintText: 'you@college.edu.in',
+                                    hintText: 'xyz@email.com',
                                     prefixIcon: Icon(
                                       Icons.email_outlined,
                                       color: AppTheme.textLight,
@@ -400,7 +415,9 @@ class _AuthScreenState extends State<AuthScreen>
                                 SizedBox(
                                   width: double.infinity,
                                   child: ElevatedButton(
-                                    onPressed: _loading ? null : _signIn,
+                                    onPressed: _loading
+                                        ? null
+                                        : (_isLogin ? _signIn : _createAccount),
                                     style: ElevatedButton.styleFrom(
                                       padding: const EdgeInsets.symmetric(
                                         vertical: 16,
@@ -462,7 +479,7 @@ class _AuthScreenState extends State<AuthScreen>
                                 const SizedBox(height: 16),
 
                                 // Google SSO button
-                                _SocialButton(
+                                SocialButton(
                                   label: 'Continue with Google',
                                   iconPath: Icons.g_mobiledata_rounded,
                                   onTap: () {
@@ -571,6 +588,7 @@ class _AuthScreenState extends State<AuthScreen>
 
 class _FieldLabel extends StatelessWidget {
   final String text;
+
   const _FieldLabel(this.text);
 
   @override
@@ -628,49 +646,6 @@ class _TabButton extends StatelessWidget {
               ),
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SocialButton extends StatelessWidget {
-  final String label;
-  final IconData iconPath;
-  final VoidCallback onTap;
-
-  const _SocialButton({
-    required this.label,
-    required this.iconPath,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 13),
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.divider),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(iconPath, size: 24, color: AppTheme.textPrimary),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.textPrimary,
-              ),
-            ),
-          ],
         ),
       ),
     );

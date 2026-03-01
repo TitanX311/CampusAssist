@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/post_model.dart';
 import '../services/data_service.dart';
 import '../theme/app_theme.dart';
+import 'location_picker_screen.dart';
 
 class CreatePostScreen extends StatefulWidget {
   const CreatePostScreen({super.key});
@@ -19,6 +20,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   bool _isAnonymous = true;
   bool _addLocation = false;
   bool _submitting = false;
+  PickedLocation? _pickedLocation;
   final _ds = DataService();
   final _formKey = GlobalKey<FormState>();
 
@@ -30,8 +32,11 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         title: _titleCtrl.text.trim(),
         body: _bodyCtrl.text.trim(),
         category: _category,
-        locationLabel: _addLocation && _locationCtrl.text.isNotEmpty
-            ? _locationCtrl.text.trim()
+        locationLabel: _addLocation
+            ? (_pickedLocation?.label ??
+                  (_locationCtrl.text.trim().isNotEmpty
+                      ? _locationCtrl.text.trim()
+                      : null))
             : null,
         isAnonymous: _isAnonymous,
       );
@@ -250,18 +255,40 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               ),
               const SizedBox(height: 16),
 
-              // Location toggle
-              Container(
+              // Location section
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.divider),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: _pickedLocation != null
+                        ? AppTheme.primary.withOpacity(0.4)
+                        : AppTheme.divider,
+                    width: _pickedLocation != null ? 1.5 : 1,
+                  ),
+                  boxShadow: _pickedLocation != null
+                      ? [
+                          BoxShadow(
+                            color: AppTheme.primary.withOpacity(0.07),
+                            blurRadius: 12,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
+                      : [],
                 ),
                 child: Column(
                   children: [
+                    // Toggle
                     SwitchListTile(
                       value: _addLocation,
-                      onChanged: (v) => setState(() => _addLocation = v),
+                      onChanged: (v) => setState(() {
+                        _addLocation = v;
+                        if (!v) {
+                          _pickedLocation = null;
+                          _locationCtrl.clear();
+                        }
+                      }),
                       title: const Text(
                         'Add Campus Location',
                         style: TextStyle(
@@ -286,13 +313,197 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                     if (_addLocation) ...[
                       const Divider(height: 1, indent: 16, endIndent: 16),
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                        child: TextFormField(
-                          controller: _locationCtrl,
-                          decoration: const InputDecoration(
-                            hintText: 'e.g. Block C Hostel, Main Canteen...',
-                            prefixIcon: Icon(Icons.place_rounded),
-                          ),
+                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Text field — always visible
+                            TextFormField(
+                              controller: _locationCtrl,
+                              onChanged: (_) {
+                                // Rebuild so button text/style updates live
+                                setState(() {
+                                  if (_pickedLocation != null) {
+                                    _pickedLocation = null;
+                                  }
+                                });
+                              },
+                              decoration: const InputDecoration(
+                                hintText:
+                                    'e.g. Block C Hostel, Main Canteen...',
+                                prefixIcon: Icon(
+                                  Icons.place_rounded,
+                                  color: AppTheme.textLight,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+
+                            // Map button — text changes based on field content
+                            GestureDetector(
+                              onTap: _locationCtrl.text.trim().isEmpty
+                                  ? null
+                                  : () async {
+                                      final result =
+                                          await Navigator.push<PickedLocation>(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  LocationPickerScreen(
+                                                    collegeId:
+                                                        college?.id ?? '',
+                                                    collegeName:
+                                                        college?.name ?? '',
+                                                    initialLabel: _locationCtrl
+                                                        .text
+                                                        .trim(),
+                                                    initial: _pickedLocation,
+                                                  ),
+                                            ),
+                                          );
+                                      if (result != null && mounted) {
+                                        setState(() {
+                                          _pickedLocation = result;
+                                          _locationCtrl.text = result.label;
+                                        });
+                                      } else if (result == null && mounted) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Row(
+                                              children: [
+                                                const Icon(
+                                                  Icons.location_off_rounded,
+                                                  color: Colors.white,
+                                                  size: 16,
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Text(
+                                                  'Could not find "${_locationCtrl.text.trim()}" on the map',
+                                                ),
+                                              ],
+                                            ),
+                                            backgroundColor: AppTheme.events,
+                                            behavior: SnackBarBehavior.floating,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    },
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _locationCtrl.text.trim().isEmpty
+                                      ? AppTheme.surface
+                                      : AppTheme.primary.withOpacity(0.06),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: _locationCtrl.text.trim().isEmpty
+                                        ? AppTheme.divider
+                                        : AppTheme.primary.withOpacity(0.3),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      _locationCtrl.text.trim().isEmpty
+                                          ? Icons.search_rounded
+                                          : Icons.map_rounded,
+                                      size: 15,
+                                      color: _locationCtrl.text.trim().isEmpty
+                                          ? AppTheme.textLight
+                                          : AppTheme.primary,
+                                    ),
+                                    const SizedBox(width: 7),
+                                    Text(
+                                      _locationCtrl.text.trim().isEmpty
+                                          ? 'Enter a location to find on map'
+                                          : 'Pick on Map',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: _locationCtrl.text.trim().isEmpty
+                                            ? AppTheme.textLight
+                                            : AppTheme.primary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                            // Pin confirmed preview — shown only after picking
+                            if (_pickedLocation != null) ...[
+                              const SizedBox(height: 10),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.success.withOpacity(0.07),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: AppTheme.success.withOpacity(0.3),
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.check_circle_rounded,
+                                      size: 16,
+                                      color: AppTheme.success,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const Text(
+                                            'Location pinned on map',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: AppTheme.success,
+                                            ),
+                                          ),
+                                          Text(
+                                            '${_pickedLocation!.latLng.latitude.toStringAsFixed(5)}, '
+                                            '${_pickedLocation!.latLng.longitude.toStringAsFixed(5)}',
+                                            style: const TextStyle(
+                                              fontSize: 10,
+                                              fontFamily: 'monospace',
+                                              color: AppTheme.textLight,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    GestureDetector(
+                                      onTap: () => setState(
+                                        () => _pickedLocation = null,
+                                      ),
+                                      child: const Icon(
+                                        Icons.close_rounded,
+                                        size: 16,
+                                        color: AppTheme.textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                     ],

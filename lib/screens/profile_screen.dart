@@ -1,4 +1,5 @@
 // lib/screens/profile_screen.dart
+import 'package:campusassist/screens/auth_gate.dart';
 import 'package:flutter/material.dart';
 import '../services/data_service.dart';
 import '../theme/app_theme.dart';
@@ -6,6 +7,13 @@ import 'college_select_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
+
+  Future<void> _signOut(context) async {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => AuthGate()),
+      (Route<dynamic> route) => false,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -151,7 +159,7 @@ class ProfileScreen extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: OutlinedButton.icon(
-                onPressed: () {},
+                onPressed: () => _signOut(context),
                 icon: const Icon(Icons.logout_rounded, color: AppTheme.events),
                 label: const Text(
                   'Sign Out',
@@ -176,7 +184,9 @@ class ProfileScreen extends StatelessWidget {
 
 class _StatItem extends StatelessWidget {
   final String label, value;
+
   const _StatItem({required this.label, required this.value});
+
   @override
   Widget build(BuildContext context) {
     return Expanded(
@@ -204,6 +214,7 @@ class _StatItem extends StatelessWidget {
 
 class _Divider extends StatelessWidget {
   const _Divider();
+
   @override
   Widget build(BuildContext context) =>
       Container(height: 40, width: 1, color: AppTheme.divider);
@@ -212,7 +223,9 @@ class _Divider extends StatelessWidget {
 class _Section extends StatelessWidget {
   final String title;
   final List<Widget> items;
+
   const _Section({required this.title, required this.items});
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -243,6 +256,7 @@ class _SettingsItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+
   const _SettingsItem({
     required this.icon,
     required this.label,

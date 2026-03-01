@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/post_model.dart';
 import '../theme/app_theme.dart';
 import 'package:timeago/timeago.dart' as timeago;
+import '../screens/campus_map_screen.dart';
 
 class PostCard extends StatefulWidget {
   final Post post;
@@ -156,23 +157,56 @@ class _PostCardState extends State<PostCard> {
                   ),
                   if (_post.locationLabel != null) ...[
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.location_on_rounded,
-                          size: 12,
-                          color: AppTheme.primary,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          _post.locationLabel!,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: AppTheme.primary,
-                            fontWeight: FontWeight.w500,
+                    GestureDetector(
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => CampusMapScreen(
+                            collegeId: _post.collegeId,
+                            collegeName: _post.collegeName,
+                            locationLabel: _post.locationLabel,
+                            postTitle: _post.title,
                           ),
                         ),
-                      ],
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary.withOpacity(0.07),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: AppTheme.primary.withOpacity(0.2),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.location_on_rounded,
+                              size: 12,
+                              color: AppTheme.primary,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _post.locationLabel!,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: AppTheme.primary,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            const Icon(
+                              Icons.map_rounded,
+                              size: 11,
+                              color: AppTheme.primary,
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ],
                 ],
