@@ -62,7 +62,7 @@ class _AuthScreenState extends State<AuthScreen>
       setState(() => _loading = false);
       Navigator.of(
         context,
-      ).pushReplacement(MaterialPageRoute(builder: (_) => const MainShell()));
+      ).pushReplacement(MaterialPageRoute(builder: (_) => const MainScreen()));
     }
   }
 

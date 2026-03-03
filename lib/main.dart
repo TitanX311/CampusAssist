@@ -2,6 +2,7 @@
 import 'package:campusassist/screens/auth_gate.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'theme/app_theme.dart';
 import 'screens/college_select_screen.dart';
 
@@ -13,7 +14,7 @@ void main() {
       statusBarIconBrightness: Brightness.dark,
     ),
   );
-  runApp(const CampusAssistApp());
+  runApp(const ProviderScope(child: CampusAssistApp()));
 }
 
 class CampusAssistApp extends StatelessWidget {

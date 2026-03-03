@@ -1,5 +1,6 @@
 // lib/screens/create_post_screen.dart
 import 'package:flutter/material.dart';
+import 'package:marquee/marquee.dart';
 import '../models/post_model.dart';
 import '../services/data_service.dart';
 import '../theme/app_theme.dart';
@@ -130,12 +131,29 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                         color: AppTheme.primary,
                       ),
                       const SizedBox(width: 6),
-                      Text(
-                        'Posting to: ${college.name}',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: AppTheme.primary,
-                          fontWeight: FontWeight.w600,
+                      Flexible(
+                        child: SizedBox(
+                          height: 20,
+                          child: Marquee(
+                            text: 'Posting to: ${college.name}',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppTheme.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            scrollAxis: Axis.horizontal,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            blankSpace:
+                                20.0, // Space between the end of text and start of next cycle
+                            velocity: 30.0, // Pixels per second
+                            pauseAfterRound: const Duration(seconds: 1),
+                            accelerationDuration: const Duration(seconds: 1),
+                            accelerationCurve: Curves.linear,
+                            decelerationDuration: const Duration(
+                              milliseconds: 500,
+                            ),
+                            decelerationCurve: Curves.easeOut,
+                          ),
                         ),
                       ),
                     ],

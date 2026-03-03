@@ -159,4 +159,13 @@ class College {
   });
 
   String get displayName => '$name, $city';
+
+  /// Maps the FastAPI /institutes response shape:
+  /// { id, institute_id, name, city, state }
+  factory College.fromJson(Map<String, dynamic> json) => College(
+    id: json['institute_id']?.toString() ?? json['id'].toString(),
+    name: json['name'] as String,
+    city: json['city'] as String,
+    state: json['state'] as String,
+  );
 }

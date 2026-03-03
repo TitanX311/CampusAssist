@@ -1,18 +1,4 @@
 // lib/services/data_service.dart
-//
-// This service uses in-memory mock data.
-// TODO: Replace all methods with actual API calls to your backend.
-// Suggested REST structure:
-//   GET  /api/posts?scope=college&college_id=:id&category=:cat  → list posts
-//   GET  /api/posts?scope=india                                  → all-india feed
-//   POST /api/posts                                              → create post
-//   POST /api/posts/:id/upvote                                   → upvote post
-//   GET  /api/posts/:id/answers                                  → list answers
-//   POST /api/posts/:id/answers                                  → create answer
-//   POST /api/answers/:id/upvote                                 → upvote answer
-//   GET  /api/colleges?q=:query                                  → search colleges
-//   GET  /api/user/profile                                       → user profile
-
 import '../models/post_model.dart';
 
 class DataService {
@@ -20,50 +6,9 @@ class DataService {
   factory DataService() => _instance;
   DataService._internal();
 
-  // ─── Mock colleges ────────────────────────────────────────────────────────
-  final List<College> _colleges = const [
-    College(id: 'c1', name: 'IIT Guwahati', city: 'Guwahati', state: 'Assam'),
-    College(id: 'c2', name: 'NIT Silchar', city: 'Silchar', state: 'Assam'),
-    College(id: 'c3', name: 'IIT Delhi', city: 'New Delhi', state: 'Delhi'),
-    College(id: 'c4', name: 'IIT Bombay', city: 'Mumbai', state: 'Maharashtra'),
-    College(id: 'c5', name: 'BITS Pilani', city: 'Pilani', state: 'Rajasthan'),
-    College(
-      id: 'c6',
-      name: 'VIT Vellore',
-      city: 'Vellore',
-      state: 'Tamil Nadu',
-    ),
-    College(
-      id: 'c7',
-      name: 'Jadavpur University',
-      city: 'Kolkata',
-      state: 'West Bengal',
-    ),
-    College(
-      id: 'c8',
-      name: 'Amity University Noida',
-      city: 'Noida',
-      state: 'UP',
-    ),
-  ];
-
   College? _selectedCollege;
-
   College? get selectedCollege => _selectedCollege;
   void setCollege(College c) => _selectedCollege = c;
-
-  List<College> searchColleges(String query) {
-    if (query.isEmpty) return _colleges;
-    final q = query.toLowerCase();
-    return _colleges
-        .where(
-          (c) =>
-              c.name.toLowerCase().contains(q) ||
-              c.city.toLowerCase().contains(q) ||
-              c.state.toLowerCase().contains(q),
-        )
-        .toList();
-  }
 
   // ─── Mock posts ───────────────────────────────────────────────────────────
   late List<Post> _posts = [
@@ -251,7 +196,9 @@ class DataService {
     bool isAnonymous = true,
   }) async {
     await Future.delayed(const Duration(milliseconds: 800));
-    final college = _selectedCollege ?? _colleges.first;
+    final college =
+        _selectedCollege ??
+        const College(id: '', name: 'Unknown', city: '', state: '');
     final post = Post(
       id: 'p${DateTime.now().millisecondsSinceEpoch}',
       title: title,

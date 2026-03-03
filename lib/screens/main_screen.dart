@@ -7,14 +7,14 @@ import 'home_screen.dart';
 import 'create_post_screen.dart';
 import 'profile_screen.dart';
 
-class MainShell extends StatefulWidget {
-  const MainShell({super.key});
+class MainScreen extends StatefulWidget {
+  const MainScreen({super.key});
 
   @override
-  State<MainShell> createState() => _MainShellState();
+  State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainScreenState extends State<MainScreen> {
   int _index = 0;
 
   final _screens = const [HomeScreen(), ProfileScreen()];
