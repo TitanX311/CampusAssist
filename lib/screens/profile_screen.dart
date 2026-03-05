@@ -1,22 +1,21 @@
 // lib/screens/profile_screen.dart
 import 'package:campusassist/screens/auth_gate.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/data_service.dart';
 import '../theme/app_theme.dart';
+import '../viewmodel/auth_viewmodel.dart';
 import 'college_select_screen.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
-  Future<void> _signOut(context) async {
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (context) => AuthGate()),
-      (Route<dynamic> route) => false,
-    );
+  Future<void> _signOut(BuildContext context, WidgetRef ref) async {
+    await ref.read(authViewModelProvider.notifier).signOut();
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final ds = DataService();
     final college = ds.selectedCollege;
     return Scaffold(
@@ -159,7 +158,7 @@ class ProfileScreen extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: OutlinedButton.icon(
-                onPressed: () => _signOut(context),
+                onPressed: () => _signOut(context, ref),
                 icon: const Icon(Icons.logout_rounded, color: AppTheme.events),
                 label: const Text(
                   'Sign Out',

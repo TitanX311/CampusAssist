@@ -1,55 +1,162 @@
 // /repositories/auth_remote_repository.dart
+import 'package:campusassist/core/server_constants.dart';
 import 'package:campusassist/models/user_model.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
-final authDioProvider = Provider<Dio>((ref) => Dio());
+import '../core/interceptors/auth_interceptor.dart';
 
-final authRepositoryProvider = Provider<AuthRemoteRepository>((ref) {
+final authDioProvider = Provider<Dio>((ref) {
+  final dio = Dio(
+    BaseOptions(
+      baseUrl: ServerConstants.baseURL,
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 10),
+    ),
+  );
+
+  dio.interceptors.add(AuthInterceptor(ref));
+
+  return dio;
+});
+
+final authRemoteRepositoryProvider = Provider<AuthRemoteRepository>((ref) {
   return AuthRemoteRepository(ref.read(authDioProvider));
 });
 
 class AuthRemoteRepository {
   final Dio _dio;
+  final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
 
   AuthRemoteRepository(this._dio);
 
-  Future<UserModel> signIn({
-    required String email,
-    required String password,
-  }) async {
-    try {
-      final response = await _dio.post(
-        '',
-        data: {'email': email, 'password': password},
-      );
-      final user = UserModel.fromMap(response.data);
-      return user;
-    } on DioException catch (e) {
-      throw Exception(e.message);
-    }
+  Future<void> initGoogleSignIn() async {
+    await _googleSignIn.initialize(
+      clientId:
+          '919964734589-qc4hujusfk752sv3lcs58dol2e068gao.apps.googleusercontent.com',
+      serverClientId:
+          '919964734589-89ak0sbj80p8574tra349f7desihkb84.apps.googleusercontent.com',
+    );
   }
 
-  Future<UserModel> createAccount({
-    required String name,
-    required String email,
-    required String password,
-  }) async {
-    try {
-      final response = await _dio.post(
-        '',
-        data: {'name': name, 'email': email, 'password': password},
-      );
-      final user = UserModel.fromMap(response.data);
-      return user;
-    } on DioException catch (e) {
-      throw Exception(e.message);
-    }
-  }
+  // Future<String?> getIdToken() async {
+  //   final GoogleSignInAccount account = await _googleSignIn.authenticate();
+  //   final GoogleSignInAuthentication auth = account.authentication;
+  //   print(auth.idToken);
+  //   return auth.idToken;
+  // }
 
-  // Future<UserModel> googleSignIn() async {
+  // Future<UserModel> signIn({
+  //   required String email,
+  //   required String password,
+  // }) async {
   //   try {
-  //
+  //     final response = await _dio.post(
+  //       '',
+  //       data: {'email': email, 'password': password},
+  //     );
+  //     final user = UserModel.fromMap(response.data);
+  //     return user;
+  //   } on DioException catch (e) {
+  //     throw Exception(e.message);
   //   }
   // }
+  //
+  // Future<UserModel> createAccount({
+  //   required String name,
+  //   required String email,
+  //   required String password,
+  // }) async {
+  //   try {
+  //     final response = await _dio.post(
+  //       '',
+  //       data: {'name': name, 'email': email, 'password': password},
+  //     );
+  //     final user = UserModel.fromMap(response.data);
+  //     return user;
+  //   } on DioException catch (e) {
+  //     throw Exception(e.message);
+  //   }
+  // }
+
+  Future<UserModel> googleSignIn() async {
+    try {
+      await initGoogleSignIn();
+
+      final GoogleSignInAccount account = await _googleSignIn.authenticate();
+      final GoogleSignInAuthentication auth = account.authentication;
+
+      final idToken = auth.idToken;
+      print("ID TOKEN: $idToken");
+      print("Sending Google token to backend...");
+
+      final response = await _dio.post(
+        '/auth/google',
+        data: {'id_token': idToken},
+      );
+
+      print("SERVER RESPONSE: ${response.data}");
+
+      final userMap = response.data['user'];
+      final refreshToken = response.data['refresh_token'];
+      final accessToken = response.data['access_token'];
+
+      return UserModel.fromResponse({
+        ...userMap,
+        'refresh_token': refreshToken,
+        'access_token': accessToken,
+      });
+    } on DioException catch (e) {
+      print("DIO ERROR:");
+      print(e.response?.data);
+      print(e.message);
+      rethrow;
+    } catch (e) {
+      print("UNKNOWN ERROR: $e");
+      rethrow;
+    }
+  }
+
+  Future<UserModel> refreshSession(String refreshToken) async {
+    try {
+      print("REFRESH API CALL STARTED");
+
+      final response = await _dio.post(
+        '/auth/refresh',
+        data: {'refresh_token': refreshToken},
+      );
+
+      print("REFRESH RESPONSE → ${response.data}");
+      final userMap = response.data['user'];
+
+      return UserModel.fromResponse({
+        ...userMap,
+        'access_token': response.data['access_token'],
+        'refresh_token': response.data['refresh_token'],
+      });
+    } on DioException catch (e) {
+      throw Exception(e.response?.data ?? e.message);
+    } catch (e) {
+      throw Exception(e.toString());
+    }
+  }
+
+  Future<void> signOut(String refreshToken) async {
+    try {
+      await _dio.post('/auth/logout', data: {'refresh_token': refreshToken});
+
+      await _googleSignIn.signOut();
+
+      print("User signed out successfully");
+    } on DioException catch (e) {
+      print("LOGOUT ERROR:");
+      print(e.response?.data);
+      print(e.message);
+      rethrow;
+    } catch (e) {
+      print("UNKNOWN LOGOUT ERROR: $e");
+      rethrow;
+    }
+  }
 }

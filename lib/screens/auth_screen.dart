@@ -1,20 +1,23 @@
 // lib/screens/auth_gate.dart
-import 'package:campusassist/screens/home_screen.dart';
+import 'package:campusassist/repositories/auth_remote_repository.dart';
 import 'package:campusassist/screens/main_screen.dart';
+import 'package:campusassist/viewmodel/auth_viewmodel.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../theme/app_theme.dart';
 import '../widgets/social_button.dart';
 import 'college_select_screen.dart';
 
-class AuthScreen extends StatefulWidget {
+class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
 
   @override
-  State<AuthScreen> createState() => _AuthScreenState();
+  ConsumerState<AuthScreen> createState() => _AuthScreenState();
 }
 
-class _AuthScreenState extends State<AuthScreen>
+class _AuthScreenState extends ConsumerState<AuthScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _animCtrl;
   late Animation<double> _fadeIn;
@@ -100,6 +103,30 @@ class _AuthScreenState extends State<AuthScreen>
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
+
+    // // React to auth state changes from Google Sign-In
+    // ref.listen<AsyncValue<dynamic>>(authViewModelProvider, (previous, next) {
+    //   next.whenOrNull(
+    //     data: (user) {
+    //       if (user != null && mounted) {
+    //         Navigator.of(context).pushAndRemoveUntil(
+    //           MaterialPageRoute(builder: (_) => const CollegeSelectScreen()),
+    //           (route) => false,
+    //         );
+    //       }
+    //     },
+    //     error: (err, _) {
+    //       if (mounted) {
+    //         ScaffoldMessenger.of(context).showSnackBar(
+    //           SnackBar(
+    //             content: Text(err.toString()),
+    //             backgroundColor: Colors.red,
+    //           ),
+    //         );
+    //       }
+    //     },
+    //   );
+    // });
 
     return Scaffold(
       backgroundColor: AppTheme.surface,
@@ -479,11 +506,39 @@ class _AuthScreenState extends State<AuthScreen>
                                 const SizedBox(height: 16),
 
                                 // Google SSO button
-                                SocialButton(
-                                  label: 'Continue with Google',
-                                  iconPath: Icons.g_mobiledata_rounded,
-                                  onTap: () {
-                                    // TODO: Google OAuth
+                                Consumer(
+                                  builder: (context, ref, _) {
+                                    final authState = ref.watch(
+                                      authViewModelProvider,
+                                    );
+                                    final isLoading = authState is AsyncLoading;
+                                    return SocialButton(
+                                      label: isLoading
+                                          ? 'Signing in...'
+                                          : 'Continue with Google',
+                                      iconPath: Icons.g_mobiledata_rounded,
+                                      onTap: isLoading
+                                          ? () {}
+                                          : () async {
+                                              final result = await ref
+                                                  .read(
+                                                    authViewModelProvider
+                                                        .notifier,
+                                                  )
+                                                  .googleSignIn();
+
+                                              if (!mounted) return;
+
+                                              Navigator.of(
+                                                context,
+                                              ).pushReplacement(
+                                                MaterialPageRoute(
+                                                  builder: (_) =>
+                                                      const MainScreen(),
+                                                ),
+                                              );
+                                            },
+                                    );
                                   },
                                 ),
                               ],

@@ -1,0 +1,78 @@
+import 'package:dio/dio.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../repositories/auth_local_repository.dart';
+import '../../repositories/auth_remote_repository.dart';
+
+class AuthInterceptor extends Interceptor {
+  final Ref ref;
+
+  AuthInterceptor(this.ref);
+
+  @override
+  void onRequest(
+    RequestOptions options,
+    RequestInterceptorHandler handler,
+  ) async {
+    print("REQUEST → ${options.method} ${options.path}");
+
+    final local = ref.read(authLocalRepositoryProvider);
+    final accessToken = await local.getAccessToken();
+
+    print("ACCESS TOKEN → $accessToken");
+
+    if (accessToken != null) {
+      options.headers['Authorization'] = 'Bearer $accessToken';
+    }
+
+    handler.next(options);
+  }
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) async {
+    print("ERROR → ${err.response?.statusCode}");
+    print("FAILED REQUEST → ${err.requestOptions.path}");
+
+    if (err.response?.statusCode == 401) {
+      print("401 detected → attempting refresh");
+
+      try {
+        final local = ref.read(authLocalRepositoryProvider);
+        final refreshToken = await local.getRefreshToken();
+
+        print("REFRESH TOKEN → $refreshToken");
+
+        if (refreshToken == null) {
+          handler.next(err);
+          return;
+        }
+
+        final authRepo = ref.read(authRemoteRepositoryProvider);
+
+        print("Calling refreshSession()");
+
+        final newUser = await authRepo.refreshSession(refreshToken);
+
+        print("Refresh successful");
+
+        await local.saveTokens(newUser.accessToken, newUser.refreshToken);
+
+        final request = err.requestOptions;
+        request.headers['Authorization'] = 'Bearer ${newUser.accessToken}';
+
+        final dio = ref.read(authDioProvider);
+
+        final response = await dio.fetch(request);
+
+        handler.resolve(response);
+      } catch (e) {
+        print("Refresh failed → $e");
+
+        await ref.read(authLocalRepositoryProvider).clearTokens();
+        handler.next(err);
+      }
+    } else {
+      handler.next(err);
+    }
+  }
+}
