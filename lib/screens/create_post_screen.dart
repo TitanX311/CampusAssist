@@ -1,5 +1,8 @@
 // lib/screens/create_post_screen.dart
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:marquee/marquee.dart';
 import '../models/post_model.dart';
 import '../services/data_service.dart';
@@ -24,6 +27,92 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   PickedLocation? _pickedLocation;
   final _ds = DataService();
   final _formKey = GlobalKey<FormState>();
+  final ImagePicker _imagePicker = ImagePicker();
+  final List<XFile> _attachments = [];
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _bodyCtrl.dispose();
+    _locationCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickFromGallery() async {
+    try {
+      final images = await _imagePicker.pickMultiImage(imageQuality: 80);
+      if (!mounted || images.isEmpty) return;
+
+      setState(() {
+        _attachments.addAll(images);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not pick images: $e'),
+          backgroundColor: AppTheme.events,
+        ),
+      );
+    }
+  }
+
+  Future<void> _pickFromCamera() async {
+    try {
+      final image = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 80,
+      );
+      if (!mounted || image == null) return;
+
+      setState(() {
+        _attachments.add(image);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not open camera: $e'),
+          backgroundColor: AppTheme.events,
+        ),
+      );
+    }
+  }
+
+  void _removeAttachmentAt(int index) {
+    setState(() {
+      _attachments.removeAt(index);
+    });
+  }
+
+  Future<void> _showAttachPhotoOptions() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from Gallery'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickFromGallery();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take a Photo'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickFromCamera();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -271,6 +360,117 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                     ? 'Description is required'
                     : null,
               ),
+              const SizedBox(height: 16),
+
+              // Attach photos
+              const Text(
+                'Attachments',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _showAttachPhotoOptions,
+                icon: const Icon(
+                  Icons.add_a_photo_outlined,
+                  size: 18,
+                  color: AppTheme.primary,
+                ),
+                label: const Text(
+                  'Attach Photos',
+                  style: TextStyle(
+                    color: AppTheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 46),
+                  side: BorderSide(color: AppTheme.primary.withOpacity(0.3)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              if (_attachments.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  '${_attachments.length} photo(s) attached',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.textSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 92,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _attachments.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 10),
+                    itemBuilder: (_, i) {
+                      final img = _attachments[i];
+                      return Stack(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: FutureBuilder<Uint8List>(
+                              future: img.readAsBytes(),
+                              builder: (_, snapshot) {
+                                if (snapshot.hasData) {
+                                  return Image.memory(
+                                    snapshot.data!,
+                                    width: 92,
+                                    height: 92,
+                                    fit: BoxFit.cover,
+                                  );
+                                }
+                                return Container(
+                                  width: 92,
+                                  height: 92,
+                                  color: AppTheme.surface,
+                                  child: const Center(
+                                    child: SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: GestureDetector(
+                              onTap: () => _removeAttachmentAt(i),
+                              child: Container(
+                                width: 22,
+                                height: 22,
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.6),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.close_rounded,
+                                  size: 14,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
 
               // Location section

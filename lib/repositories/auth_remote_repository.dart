@@ -10,7 +10,7 @@ import '../core/interceptors/auth_interceptor.dart';
 final authDioProvider = Provider<Dio>((ref) {
   final dio = Dio(
     BaseOptions(
-      baseUrl: ServerConstants.baseURL,
+      baseUrl: '${ServerConstants.baseURL}/auth',
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 10),
     ),
@@ -47,38 +47,67 @@ class AuthRemoteRepository {
   //   return auth.idToken;
   // }
 
-  // Future<UserModel> signIn({
-  //   required String email,
-  //   required String password,
-  // }) async {
-  //   try {
-  //     final response = await _dio.post(
-  //       '',
-  //       data: {'email': email, 'password': password},
-  //     );
-  //     final user = UserModel.fromMap(response.data);
-  //     return user;
-  //   } on DioException catch (e) {
-  //     throw Exception(e.message);
-  //   }
-  // }
-  //
-  // Future<UserModel> createAccount({
-  //   required String name,
-  //   required String email,
-  //   required String password,
-  // }) async {
-  //   try {
-  //     final response = await _dio.post(
-  //       '',
-  //       data: {'name': name, 'email': email, 'password': password},
-  //     );
-  //     final user = UserModel.fromMap(response.data);
-  //     return user;
-  //   } on DioException catch (e) {
-  //     throw Exception(e.message);
-  //   }
-  // }
+  Future<UserModel> signIn({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/login',
+        data: {'email': email, 'password': password},
+      );
+      print("SERVER RESPONSE: ${response.data}");
+
+      final userMap = response.data['user'];
+      final refreshToken = response.data['refresh_token'];
+      final accessToken = response.data['access_token'];
+
+      return UserModel.fromResponse({
+        ...userMap,
+        'refresh_token': refreshToken,
+        'access_token': accessToken,
+      });
+    } on DioException catch (e) {
+      print("DIO ERROR:");
+      print(e.response?.data);
+      print(e.message);
+      rethrow;
+    } catch (e) {
+      print("UNKNOWN ERROR: $e");
+      rethrow;
+    }
+  }
+
+  Future<UserModel> createAccount({
+    required String name,
+    required String email,
+    required String password,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/register',
+        data: {'name': name, 'email': email, 'password': password},
+      );
+      print("SERVER RESPONSE: ${response.data}");
+      final userMap = response.data['user'];
+      final refreshToken = response.data['refresh_token'];
+      final accessToken = response.data['access_token'];
+
+      return UserModel.fromResponse({
+        ...userMap,
+        'refresh_token': refreshToken,
+        'access_token': accessToken,
+      });
+    } on DioException catch (e) {
+      print("DIO ERROR:");
+      print(e.response?.data);
+      print(e.message);
+      rethrow;
+    } catch (e) {
+      print("UNKNOWN ERROR: $e");
+      rethrow;
+    }
+  }
 
   Future<UserModel> googleSignIn() async {
     try {
@@ -91,10 +120,7 @@ class AuthRemoteRepository {
       print("ID TOKEN: $idToken");
       print("Sending Google token to backend...");
 
-      final response = await _dio.post(
-        '/auth/google',
-        data: {'id_token': idToken},
-      );
+      final response = await _dio.post('/google', data: {'id_token': idToken});
 
       print("SERVER RESPONSE: ${response.data}");
 
@@ -123,7 +149,7 @@ class AuthRemoteRepository {
       print("REFRESH API CALL STARTED");
 
       final response = await _dio.post(
-        '/auth/refresh',
+        '/refresh',
         data: {'refresh_token': refreshToken},
       );
 
@@ -144,7 +170,7 @@ class AuthRemoteRepository {
 
   Future<void> signOut(String refreshToken) async {
     try {
-      await _dio.post('/auth/logout', data: {'refresh_token': refreshToken});
+      await _dio.post('/logout', data: {'refresh_token': refreshToken});
 
       await _googleSignIn.signOut();
 

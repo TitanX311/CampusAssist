@@ -43,6 +43,59 @@ class AuthViewModel extends AsyncNotifier<UserModel?> {
     }
   }
 
+  Future<UserModel?> signIn({
+    required String email,
+    required String password,
+  }) async {
+    state = const AsyncLoading();
+
+    final result = await AsyncValue.guard(
+      () => ref
+          .read(authRemoteRepositoryProvider)
+          .signIn(email: email, password: password),
+    );
+
+    if (result.hasValue && result.value != null) {
+      final local = ref.read(authLocalRepositoryProvider);
+
+      await local.saveTokens(
+        result.value!.accessToken,
+        result.value!.refreshToken,
+      );
+    }
+
+    state = result;
+
+    return result.value;
+  }
+
+  Future<UserModel?> createAccount({
+    required String name,
+    required String email,
+    required String password,
+  }) async {
+    state = const AsyncLoading();
+
+    final result = await AsyncValue.guard(
+      () => ref
+          .read(authRemoteRepositoryProvider)
+          .createAccount(name: name, email: email, password: password),
+    );
+
+    if (result.hasValue && result.value != null) {
+      final local = ref.read(authLocalRepositoryProvider);
+
+      await local.saveTokens(
+        result.value!.accessToken,
+        result.value!.refreshToken,
+      );
+    }
+
+    state = result;
+
+    return result.value;
+  }
+
   Future<UserModel?> googleSignIn() async {
     state = const AsyncLoading();
 

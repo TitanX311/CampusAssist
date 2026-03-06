@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>CampusAssist needs camera access to let you attach photos to posts.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>CampusAssist needs photo library access so you can attach images to posts.</string>
 </dict>
 </plist>

@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/data_service.dart';
 import '../theme/app_theme.dart';
 import '../viewmodel/auth_viewmodel.dart';
-import 'college_select_screen.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -110,19 +109,7 @@ class ProfileScreen extends ConsumerWidget {
               title: 'Account',
               items: [
                 _SettingsItem(
-                  icon: Icons.school_outlined,
-                  label: 'Change College',
-                  onTap: () {
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const CollegeSelectScreen(),
-                      ),
-                    );
-                  },
-                ),
-                _SettingsItem(
-                  icon: Icons.shield_outlined,
+                  icon: Icons.privacy_tip_outlined,
                   label: 'Privacy & Anonymity',
                   onTap: () {},
                 ),

@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'home_screen.dart';
+import 'communities_screen.dart';
 import 'create_post_screen.dart';
 import 'profile_screen.dart';
 
@@ -17,7 +18,7 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _index = 0;
 
-  final _screens = const [HomeScreen(), ProfileScreen()];
+  final _screens = const [HomeScreen(), CommunitiesScreen(), ProfileScreen()];
 
   void _openCreatePost() {
     Navigator.push(
@@ -153,6 +154,16 @@ class _FloatingNavBarState extends State<_FloatingNavBar>
                     ),
                   ),
 
+                  // Communities tab
+                  Expanded(
+                    child: _NavTab(
+                      icon: Icons.people_rounded,
+                      label: 'Community',
+                      selected: widget.currentIndex == 1,
+                      onTap: () => widget.onTap(1),
+                    ),
+                  ),
+
                   // Ask (center pill button)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 10),
@@ -212,8 +223,8 @@ class _FloatingNavBarState extends State<_FloatingNavBar>
                     child: _NavTab(
                       icon: Icons.person_rounded,
                       label: 'Profile',
-                      selected: widget.currentIndex == 1,
-                      onTap: () => widget.onTap(1),
+                      selected: widget.currentIndex == 2,
+                      onTap: () => widget.onTap(2),
                     ),
                   ),
                 ],

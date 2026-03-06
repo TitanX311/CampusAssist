@@ -1,4 +1,5 @@
 // lib/screens/home_screen.dart
+import 'package:campusassist/widgets/app_logo_icon.dart';
 import 'package:flutter/material.dart';
 import '../models/post_model.dart';
 import '../services/data_service.dart';
@@ -33,10 +34,14 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _load() async {
     setState(() => _loading = true);
+    final college = _ds.selectedCollege;
+    final hasCollege = college != null && college.id.isNotEmpty;
     final results = await Future.wait([
-      _ds.getMyCollegePosts(
-        category: _selectedCategory == 'All' ? null : _selectedCategory,
-      ),
+      hasCollege
+          ? _ds.getMyCollegePosts(
+              category: _selectedCategory == 'All' ? null : _selectedCategory,
+            )
+          : Future.value(<Post>[]),
       _ds.getAcrossIndiaPosts(
         category: _selectedCategory == 'All' ? null : _selectedCategory,
       ),
@@ -82,21 +87,7 @@ class _HomeScreenState extends State<HomeScreen>
             elevation: 0,
             title: Row(
               children: [
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [AppTheme.primary, AppTheme.primaryLight],
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.school_rounded,
-                    color: Colors.white,
-                    size: 18,
-                  ),
-                ),
+                const AppLogoIcon.small(),
                 const SizedBox(width: 10),
                 const Text(
                   'CampusAssist',
@@ -177,13 +168,15 @@ class _HomeScreenState extends State<HomeScreen>
         body: TabBarView(
           controller: _tabCtrl,
           children: [
-            _PostList(
-              posts: _myCollegePosts,
-              loading: _loading,
-              showCollege: false,
-              onUpvote: _upvotePost,
-              onTap: _openPost,
-            ),
+            (college == null || college.id.isEmpty)
+                ? const _NoCollegeView()
+                : _PostList(
+                    posts: _myCollegePosts,
+                    loading: _loading,
+                    showCollege: false,
+                    onUpvote: _upvotePost,
+                    onTap: _openPost,
+                  ),
             _PostList(
               posts: _indiaPosts,
               loading: _loading,
@@ -256,6 +249,48 @@ class _PostList extends StatelessWidget {
           showCollegeName: showCollege,
           onTap: () => onTap(posts[i]),
           onUpvote: onUpvote,
+        ),
+      ),
+    );
+  }
+}
+
+class _NoCollegeView extends StatelessWidget {
+  const _NoCollegeView();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.school_outlined,
+              size: 72,
+              color: AppTheme.textLight.withOpacity(0.4),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'No college selected',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Go to the Community tab to select your college and see posts from your campus.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: AppTheme.textSecondary,
+                height: 1.5,
+              ),
+            ),
+          ],
         ),
       ),
     );

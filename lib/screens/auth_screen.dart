@@ -2,13 +2,13 @@
 import 'package:campusassist/repositories/auth_remote_repository.dart';
 import 'package:campusassist/screens/main_screen.dart';
 import 'package:campusassist/viewmodel/auth_viewmodel.dart';
+import 'package:campusassist/widgets/app_logo_icon.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../theme/app_theme.dart';
 import '../widgets/social_button.dart';
-import 'college_select_screen.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -31,7 +31,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
   final _passwordCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
 
-  // final _formKey = GlobalKey<FormState>();
+  final _formKey = GlobalKey<FormState>();
 
   @override
   void initState() {
@@ -58,39 +58,61 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
   }
 
   Future<void> _signIn() async {
-    // if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) return;
+
     setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 1200));
+
+    try {
+      await ref
+          .read(authViewModelProvider.notifier)
+          .signIn(
+            email: _emailCtrl.text.trim(),
+            password: _passwordCtrl.text.trim(),
+          );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+        );
+      }
+    }
+
     if (mounted) {
       setState(() => _loading = false);
-      Navigator.of(
-        context,
-      ).pushReplacement(MaterialPageRoute(builder: (_) => const MainScreen()));
     }
   }
 
   Future<void> _createAccount() async {
-    // if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) return;
+
     setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 1200));
+
+    try {
+      await ref
+          .read(authViewModelProvider.notifier)
+          .createAccount(
+            name: _nameCtrl.text.trim(),
+            email: _emailCtrl.text.trim(),
+            password: _passwordCtrl.text.trim(),
+          );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+        );
+      }
+    }
+
     if (mounted) {
       setState(() => _loading = false);
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const CollegeSelectScreen()),
-      );
     }
   }
 
   Future<void> _submit() async {
-    // if (!_formKey.currentState!.validate()) return;
-    setState(() => _loading = true);
-    // TODO: Replace with actual auth call (Firebase / Supabase / custom API)
-    await Future.delayed(const Duration(milliseconds: 1200));
-    if (mounted) {
-      setState(() => _loading = false);
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const CollegeSelectScreen()),
-      );
+    if (_isLogin) {
+      await _signIn();
+    } else {
+      await _createAccount();
     }
   }
 
@@ -190,33 +212,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
                         Center(
                           child: Column(
                             children: [
-                              Container(
-                                width: 76,
-                                height: 76,
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    colors: [
-                                      AppTheme.primary,
-                                      AppTheme.primaryLight,
-                                    ],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ),
-                                  borderRadius: BorderRadius.circular(22),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: AppTheme.primary.withOpacity(0.38),
-                                      blurRadius: 20,
-                                      offset: const Offset(0, 8),
-                                    ),
-                                  ],
-                                ),
-                                child: const Icon(
-                                  Icons.school_rounded,
-                                  color: Colors.white,
-                                  size: 38,
-                                ),
-                              ),
+                              const AppLogoIcon.large(),
                               const SizedBox(height: 14),
                               const Text(
                                 'CampusAssist',
@@ -287,7 +283,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
                           ),
                           padding: const EdgeInsets.all(24),
                           child: Form(
-                            // key: _formKey,
+                            key: _formKey,
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
