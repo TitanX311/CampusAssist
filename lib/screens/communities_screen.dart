@@ -1,10 +1,10 @@
 // lib/screens/communities_screen.dart
+import 'package:campusassist/models/college_model.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:campusassist/core/providers.dart';
 import '../models/community_model.dart';
-import '../models/post_model.dart';
-import '../services/data_service.dart';
 import '../theme/app_theme.dart';
 import '../viewmodel/college_select_viewmodel.dart';
 import '../viewmodel/community_viewmodel.dart';
@@ -17,18 +17,29 @@ class CommunitiesScreen extends ConsumerStatefulWidget {
 }
 
 class _CommunitiesScreenState extends ConsumerState<CommunitiesScreen> {
-  final _ds = DataService();
+  void _openCreateCommunitySheet() async {
+    final created = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _CreateCommunitySheet(),
+    );
+    if (created == true && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Community created!')));
+    }
+  }
 
   void _openCollegePicker() async {
-    final picked = await showModalBottomSheet<College>(
+    final picked = await showModalBottomSheet<CollegeModel>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => const _CollegePickerSheet(),
     );
     if (picked != null) {
-      _ds.setCollege(picked);
-      setState(() {});
+      ref.read(selectedCollegeProvider.notifier).state = picked;
     }
   }
 
@@ -48,10 +59,7 @@ class _CommunitiesScreenState extends ConsumerState<CommunitiesScreen> {
           TextButton(
             onPressed: () {
               // TODO: Implement leave college via community API when college is a community
-              _ds.setCollege(
-                const College(id: '', name: '', city: '', state: ''),
-              );
-              setState(() {});
+              ref.read(selectedCollegeProvider.notifier).state = null;
               Navigator.pop(ctx);
             },
             child: const Text('Leave', style: TextStyle(color: Colors.red)),
@@ -63,7 +71,7 @@ class _CommunitiesScreenState extends ConsumerState<CommunitiesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final college = _ds.selectedCollege;
+    final college = ref.watch(selectedCollegeProvider);
     final hasCollege = college != null && college.id.isNotEmpty;
     final communitiesAsync = ref.watch(communityViewModelProvider);
 
@@ -128,7 +136,20 @@ class _CommunitiesScreenState extends ConsumerState<CommunitiesScreen> {
 
           const SizedBox(height: 28),
 
-          // ── MY COMMUNITIES ───────────────────────────────────────────────
+          // ── CREATE COMMUNITY ─────────────────────────────────────────────
+          const SizedBox(height: 28),
+          const _SectionHeader(title: 'Create'),
+          const SizedBox(height: 10),
+          _EmptyActionTile(
+            icon: Icons.add_circle_outline_rounded,
+            title: 'Start a new community',
+            subtitle:
+                'Bring together students around a shared interest or topic',
+            actionLabel: 'Create Community',
+            onTap: _openCreateCommunitySheet,
+          ),
+
+          const SizedBox(height: 28),
           const _SectionHeader(title: 'My Communities'),
           const SizedBox(height: 10),
 
@@ -327,7 +348,7 @@ class _EmptyActionTile extends StatelessWidget {
 }
 
 class _CollegeCard extends StatelessWidget {
-  final College college;
+  final CollegeModel college;
   final VoidCallback onLeave;
 
   const _CollegeCard({required this.college, required this.onLeave});
@@ -384,7 +405,7 @@ class _CollegeCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${college.city}, ${college.state}',
+                  college.physicalAddress,
                   style: const TextStyle(
                     fontSize: 12,
                     color: AppTheme.textSecondary,
@@ -520,8 +541,10 @@ class _CollegePickerSheetState extends ConsumerState<_CollegePickerSheet> {
     super.dispose();
   }
 
-  void _onSearch(String q) {
-    ref.read(collegeSelectViewModelProvider.notifier).searchColleges(q);
+  void _onSearch() {
+    ref
+        .read(collegeSelectViewModelProvider.notifier)
+        .searchColleges(_searchCtrl.text);
   }
 
   @override
@@ -572,7 +595,7 @@ class _CollegePickerSheetState extends ConsumerState<_CollegePickerSheet> {
             child: TextField(
               controller: _searchCtrl,
               autofocus: true,
-              onChanged: _onSearch,
+              onChanged: (_) => _onSearch(),
               decoration: InputDecoration(
                 hintText: 'Search colleges…',
                 prefixIcon: const Icon(
@@ -584,7 +607,7 @@ class _CollegePickerSheetState extends ConsumerState<_CollegePickerSheet> {
                     ? GestureDetector(
                         onTap: () {
                           _searchCtrl.clear();
-                          _onSearch('');
+                          _onSearch();
                         },
                         child: const Icon(
                           Icons.clear_rounded,
@@ -671,7 +694,7 @@ class _CollegePickerSheetState extends ConsumerState<_CollegePickerSheet> {
                         ),
                       ),
                       subtitle: Text(
-                        '${c.city}, ${c.state}',
+                        c.physicalAddress,
                         style: const TextStyle(
                           fontSize: 12,
                           color: AppTheme.textSecondary,
@@ -687,6 +710,236 @@ class _CollegePickerSheetState extends ConsumerState<_CollegePickerSheet> {
 
           SizedBox(height: bottomInset),
         ],
+      ),
+    );
+  }
+}
+
+// ── Create Community Bottom Sheet ────────────────────────────────────────────
+
+class _CreateCommunitySheet extends ConsumerStatefulWidget {
+  const _CreateCommunitySheet();
+
+  @override
+  ConsumerState<_CreateCommunitySheet> createState() =>
+      _CreateCommunitySheetState();
+}
+
+class _CreateCommunitySheetState extends ConsumerState<_CreateCommunitySheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameCtrl = TextEditingController();
+  String _selectedType = 'public';
+  bool _isLoading = false;
+
+  static const _types = ['public', 'private'];
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    setState(() => _isLoading = true);
+    try {
+      await ref
+          .read(communityViewModelProvider.notifier)
+          .createCommunity(name: _nameCtrl.text.trim(), type: _selectedType);
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to create community: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(20, 0, 20, 20 + bottomInset),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Handle
+            const SizedBox(height: 12),
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppTheme.divider,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Title
+            const Text(
+              'Create a Community',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Any student can start a community around a shared interest.',
+              style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+            ),
+            const SizedBox(height: 24),
+
+            // Name field
+            const Text(
+              'Community Name',
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _nameCtrl,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                hintText: 'e.g. Photography Club, Study Group …',
+                prefixIcon: Icon(
+                  Icons.people_outline_rounded,
+                  color: AppTheme.textLight,
+                  size: 20,
+                ),
+              ),
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) {
+                  return 'Please enter a community name';
+                }
+                if (v.trim().length < 3) {
+                  return 'Name must be at least 3 characters';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 20),
+
+            // Type selector
+            const Text(
+              'Visibility',
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: _types.map((type) {
+                final selected = _selectedType == type;
+                return Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _selectedType = type),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      margin: EdgeInsets.only(right: type == 'public' ? 8 : 0),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? AppTheme.primary.withOpacity(0.08)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: selected ? AppTheme.primary : AppTheme.divider,
+                          width: selected ? 1.5 : 1,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(
+                            type == 'public'
+                                ? Icons.public_rounded
+                                : Icons.lock_outline_rounded,
+                            color: selected
+                                ? AppTheme.primary
+                                : AppTheme.textLight,
+                            size: 20,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            type == 'public' ? 'Public' : 'Private',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: selected
+                                  ? AppTheme.primary
+                                  : AppTheme.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            type == 'public'
+                                ? 'Anyone can join'
+                                : 'Approval required',
+                            style: const TextStyle(
+                              fontSize: 10.5,
+                              color: AppTheme.textLight,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 28),
+
+            // Submit button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isLoading ? null : _submit,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                child: _isLoading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text(
+                        'Create Community',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

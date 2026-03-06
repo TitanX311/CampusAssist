@@ -3,20 +3,17 @@ import 'package:flutter/material.dart';
 import '../models/post_model.dart';
 import '../theme/app_theme.dart';
 import 'package:timeago/timeago.dart' as timeago;
-import '../screens/campus_map_screen.dart';
 
 class PostCard extends StatefulWidget {
   final Post post;
   final VoidCallback onTap;
   final Future<Post> Function(String id) onUpvote;
-  final bool showCollegeName;
 
   const PostCard({
     super.key,
     required this.post,
     required this.onTap,
     required this.onUpvote,
-    this.showCollegeName = false,
   });
 
   @override
@@ -45,7 +42,6 @@ class _PostCardState extends State<PostCard> {
 
   @override
   Widget build(BuildContext context) {
-    final catColor = AppTheme.categoryColor(_post.category.label);
     return GestureDetector(
       onTap: widget.onTap,
       child: Container(
@@ -65,194 +61,159 @@ class _PostCardState extends State<PostCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Top bar
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: catColor.withOpacity(0.07),
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(16),
-                ),
-              ),
+            // Header — author + time
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
               child: Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
+                  CircleAvatar(
+                    radius: 16,
+                    backgroundColor: AppTheme.primaryLight,
+                    child: Text(
+                      _post.authorAlias.isNotEmpty
+                          ? _post.authorAlias[0].toUpperCase()
+                          : '?',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
                     ),
-                    decoration: BoxDecoration(
-                      color: catColor.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(
-                          AppTheme.categoryIcon(_post.category.label),
-                          size: 12,
-                          color: catColor,
-                        ),
-                        const SizedBox(width: 4),
                         Text(
-                          _post.category.label,
-                          style: TextStyle(
-                            fontSize: 11,
+                          '@${_post.authorAlias}',
+                          style: const TextStyle(
+                            fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            color: catColor,
+                            color: AppTheme.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          timeago.format(_post.createdAt),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: AppTheme.textLight,
                           ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  if (widget.showCollegeName) ...[
-                    Expanded(
-                      child: Text(
-                        _post.collegeName,
+                  const Icon(
+                    Icons.more_horiz_rounded,
+                    size: 20,
+                    color: AppTheme.textLight,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // Content text
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Text(
+                _post.content,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: AppTheme.textPrimary,
+                  height: 1.45,
+                ),
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+
+            // Location tag
+            if (_post.locationLabel != null) ...[
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withOpacity(0.07),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: AppTheme.primary.withOpacity(0.2),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.location_on_rounded,
+                        size: 12,
+                        color: AppTheme.primary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _post.locationLabel!,
                         style: const TextStyle(
                           fontSize: 11,
-                          color: AppTheme.textSecondary,
+                          color: AppTheme.primary,
+                          fontWeight: FontWeight.w500,
                         ),
-                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                  ] else
-                    const Spacer(),
-                  Text(
-                    timeago.format(_post.createdAt),
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppTheme.textLight,
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
-            // Content
+            ],
+
+            const SizedBox(height: 12),
+
+            // Divider
+            const Divider(height: 1, indent: 14, endIndent: 14),
+
+            // Footer — comments + upvote
             Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _post.title,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.textPrimary,
-                      height: 1.3,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _post.body,
-                    style: const TextStyle(
-                      fontSize: 12.5,
-                      color: AppTheme.textSecondary,
-                      height: 1.4,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (_post.locationLabel != null) ...[
-                    const SizedBox(height: 8),
-                    GestureDetector(
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => CampusMapScreen(
-                            collegeId: _post.collegeId,
-                            collegeName: _post.collegeName,
-                            locationLabel: _post.locationLabel,
-                            postTitle: _post.title,
-                          ),
-                        ),
-                      ),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primary.withOpacity(0.07),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: AppTheme.primary.withOpacity(0.2),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.location_on_rounded,
-                              size: 12,
-                              color: AppTheme.primary,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              _post.locationLabel!,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: AppTheme.primary,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const SizedBox(width: 5),
-                            const Icon(
-                              Icons.map_rounded,
-                              size: 11,
-                              color: AppTheme.primary,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            // Footer
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               child: Row(
                 children: [
-                  Text(
-                    '@${_post.authorAlias}',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppTheme.textLight,
-                    ),
-                  ),
-                  const Spacer(),
-                  // Answer count
+                  // Comment count
                   Row(
                     children: [
                       const Icon(
                         Icons.chat_bubble_outline_rounded,
-                        size: 14,
+                        size: 16,
                         color: AppTheme.textLight,
                       ),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: 5),
                       Text(
                         '${_post.answerCount}',
                         style: const TextStyle(
-                          fontSize: 12,
+                          fontSize: 13,
                           color: AppTheme.textSecondary,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 20),
+                  // Share placeholder
+                  const Icon(
+                    Icons.share_outlined,
+                    size: 16,
+                    color: AppTheme.textLight,
+                  ),
+                  const Spacer(),
                   // Upvote
                   GestureDetector(
                     onTap: _handleUpvote,
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 200),
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
+                        horizontal: 12,
+                        vertical: 6,
                       ),
                       decoration: BoxDecoration(
                         color: _post.hasUpvoted
@@ -270,7 +231,7 @@ class _PostCardState extends State<PostCard> {
                         children: [
                           Icon(
                             Icons.arrow_upward_rounded,
-                            size: 14,
+                            size: 15,
                             color: _post.hasUpvoted
                                 ? Colors.white
                                 : AppTheme.textSecondary,
@@ -279,7 +240,7 @@ class _PostCardState extends State<PostCard> {
                           Text(
                             '${_post.upvotes}',
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 13,
                               fontWeight: FontWeight.w600,
                               color: _post.hasUpvoted
                                   ? Colors.white

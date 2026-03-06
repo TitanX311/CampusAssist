@@ -80,6 +80,23 @@ class CommunityRemoteRepository {
     }
   }
 
+  /// POST /api/community
+  /// Create a new community
+  Future<Community> createCommunity({
+    required String name,
+    required String type,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/api/community',
+        data: {'name': name, 'type': type},
+      );
+      return Community.fromMap(response.data!);
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    }
+  }
+
   String _mapDioError(DioException e) {
     switch (e.type) {
       case DioExceptionType.connectionTimeout:

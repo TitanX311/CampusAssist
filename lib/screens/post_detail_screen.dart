@@ -1,21 +1,21 @@
 // lib/screens/post_detail_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/post_model.dart';
-import '../services/data_service.dart';
+import '../repositories/post_remote_repository.dart';
 import '../theme/app_theme.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'campus_map_screen.dart';
 
-class PostDetailScreen extends StatefulWidget {
+class PostDetailScreen extends ConsumerStatefulWidget {
   final Post post;
   const PostDetailScreen({super.key, required this.post});
 
   @override
-  State<PostDetailScreen> createState() => _PostDetailScreenState();
+  ConsumerState<PostDetailScreen> createState() => _PostDetailScreenState();
 }
 
-class _PostDetailScreenState extends State<PostDetailScreen> {
-  final _ds = DataService();
+class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
   late Post _post;
   List<Answer> _answers = [];
   bool _loading = true;
@@ -30,25 +30,47 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   }
 
   Future<void> _loadAnswers() async {
-    final ans = await _ds.getAnswers(_post.id);
+    // TODO: fetch via GET /api/posts/{id}/comments once endpoint is wired
     if (mounted) {
       setState(() {
-        _answers = ans;
+        _answers = [];
         _loading = false;
       });
     }
   }
 
   Future<void> _upvotePost() async {
-    final updated = await _ds.upvotePost(_post.id);
-    if (mounted) setState(() => _post = updated);
+    final wasUpvoted = _post.hasUpvoted;
+    setState(
+      () => _post = _post.copyWith(
+        upvotes: wasUpvoted ? _post.upvotes - 1 : _post.upvotes + 1,
+        hasUpvoted: !wasUpvoted,
+      ),
+    );
+    try {
+      await ref.read(postRemoteRepositoryProvider).likePost(_post.id);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _post = _post.copyWith(
+            upvotes: wasUpvoted ? _post.upvotes + 1 : _post.upvotes - 1,
+            hasUpvoted: wasUpvoted,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _upvoteAnswer(Answer a) async {
-    final updated = await _ds.upvoteAnswer(_post.id, a.id);
+    // Optimistic local toggle — no backend endpoint for answer upvotes yet
     setState(() {
       final idx = _answers.indexWhere((x) => x.id == a.id);
-      if (idx != -1) _answers[idx] = updated;
+      if (idx != -1) {
+        _answers[idx] = a.copyWith(
+          upvotes: a.hasUpvoted ? a.upvotes - 1 : a.upvotes + 1,
+          hasUpvoted: !a.hasUpvoted,
+        );
+      }
     });
   }
 
@@ -56,16 +78,26 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     final text = _answerCtrl.text.trim();
     if (text.isEmpty) return;
     setState(() => _submitting = true);
-    final ans = await _ds.createAnswer(postId: _post.id, body: text);
+    final comment = await ref
+        .read(postRemoteRepositoryProvider)
+        .addComment(_post.id, text);
+    final ans = Answer(
+      id: comment.id,
+      postId: comment.postId,
+      body: comment.body,
+      authorAlias: comment.authorAlias,
+      createdAt: comment.createdAt,
+    );
     _answerCtrl.clear();
     setState(() {
       _answers.insert(0, ans);
       _submitting = false;
       _post = Post(
         id: _post.id,
-        title: _post.title,
-        body: _post.body,
+        content: _post.content,
+        attachments: _post.attachments,
         authorAlias: _post.authorAlias,
+        communityId: _post.communityId,
         collegeId: _post.collegeId,
         collegeName: _post.collegeName,
         category: _post.category,
@@ -172,20 +204,10 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                _post.title,
+                                _post.content,
                                 style: const TextStyle(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14,
                                   color: AppTheme.textPrimary,
-                                  height: 1.3,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                _post.body,
-                                style: const TextStyle(
-                                  fontSize: 13.5,
-                                  color: AppTheme.textSecondary,
                                   height: 1.5,
                                 ),
                               ),
@@ -432,7 +454,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           collegeId: _post.collegeId,
           collegeName: _post.collegeName,
           locationLabel: _post.locationLabel,
-          postTitle: _post.title,
+          postTitle: _post.content.length > 60
+              ? '${_post.content.substring(0, 60)}...'
+              : _post.content,
         ),
       ),
     );

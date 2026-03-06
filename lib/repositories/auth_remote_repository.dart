@@ -117,12 +117,12 @@ class AuthRemoteRepository {
       final GoogleSignInAuthentication auth = account.authentication;
 
       final idToken = auth.idToken;
-      print("ID TOKEN: $idToken");
-      print("Sending Google token to backend...");
+      // print("ID TOKEN: $idToken");
+      // print("Sending Google token to backend...");
 
       final response = await _dio.post('/google', data: {'id_token': idToken});
 
-      print("SERVER RESPONSE: ${response.data}");
+      // print("SERVER RESPONSE: ${response.data}");
 
       final userMap = response.data['user'];
       final refreshToken = response.data['refresh_token'];
@@ -134,9 +134,9 @@ class AuthRemoteRepository {
         'access_token': accessToken,
       });
     } on DioException catch (e) {
-      print("DIO ERROR:");
-      print(e.response?.data);
-      print(e.message);
+      // print("DIO ERROR:");
+      // print(e.response?.data);
+      // print(e.message);
       rethrow;
     } catch (e) {
       print("UNKNOWN ERROR: $e");
@@ -146,14 +146,14 @@ class AuthRemoteRepository {
 
   Future<UserModel> refreshSession(String refreshToken) async {
     try {
-      print("REFRESH API CALL STARTED");
+      // print("REFRESH API CALL STARTED");
 
       final response = await _dio.post(
         '/refresh',
         data: {'refresh_token': refreshToken},
       );
 
-      print("REFRESH RESPONSE → ${response.data}");
+      // print("REFRESH RESPONSE → ${response.data}");
       final userMap = response.data['user'];
 
       return UserModel.fromResponse({

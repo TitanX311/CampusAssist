@@ -20,10 +20,15 @@ class _MainScreenState extends State<MainScreen> {
 
   final _screens = const [HomeScreen(), CommunitiesScreen(), ProfileScreen()];
 
-  void _openCreatePost() {
+  void _openCreatePost({String? communityId, String? communityName}) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const CreatePostScreen()),
+      MaterialPageRoute(
+        builder: (_) => CreatePostScreen(
+          communityId: communityId,
+          communityName: communityName,
+        ),
+      ),
     ).then((v) {
       if (v == true) setState(() {});
     });

@@ -33,9 +33,10 @@ extension PostCategoryExtension on PostCategory {
 
 class Post {
   final String id;
-  final String title;
-  final String body;
+  final String content;
+  final List<String> attachments;
   final String authorAlias; // anonymized handle shown in the UI
+  final String communityId;
   final String collegeId;
   final String collegeName;
   final PostCategory category;
@@ -43,30 +44,30 @@ class Post {
   final bool hasUpvoted;
   final int answerCount;
   final DateTime createdAt;
-  final bool isAnonymous;
   final String? locationLabel; // selected campus landmark label
 
   const Post({
     required this.id,
-    required this.title,
-    required this.body,
+    required this.content,
+    this.attachments = const [],
     required this.authorAlias,
-    required this.collegeId,
-    required this.collegeName,
+    this.communityId = '',
+    this.collegeId = '',
+    this.collegeName = '',
     required this.category,
     this.upvotes = 0,
     this.hasUpvoted = false,
     this.answerCount = 0,
     required this.createdAt,
-    this.isAnonymous = true,
     this.locationLabel,
   });
 
   Post copyWith({int? upvotes, bool? hasUpvoted}) => Post(
     id: id,
-    title: title,
-    body: body,
+    content: content,
+    attachments: attachments,
     authorAlias: authorAlias,
+    communityId: communityId,
     collegeId: collegeId,
     collegeName: collegeName,
     category: category,
@@ -74,35 +75,34 @@ class Post {
     hasUpvoted: hasUpvoted ?? this.hasUpvoted,
     answerCount: answerCount,
     createdAt: createdAt,
-    isAnonymous: isAnonymous,
     locationLabel: locationLabel,
   );
 
-  // TODO: Replace with API call
   factory Post.fromJson(Map<String, dynamic> json) => Post(
-    id: json['id'],
-    title: json['title'],
-    body: json['body'],
-    authorAlias: json['author_alias'],
-    collegeId: json['college_id'],
-    collegeName: json['college_name'],
+    id: json['id'] as String,
+    content: json['content'] as String? ?? '',
+    attachments: (json['attachments'] as List<dynamic>? ?? []).cast<String>(),
+    authorAlias: json['author_alias'] as String? ?? '',
+    communityId: json['community_id'] as String? ?? '',
+    collegeId: json['college_id'] as String? ?? '',
+    collegeName: json['college_name'] as String? ?? '',
     category: PostCategory.values.firstWhere(
       (e) => e.name == json['category'],
       orElse: () => PostCategory.general,
     ),
-    upvotes: json['upvotes'] ?? 0,
-    hasUpvoted: json['has_upvoted'] ?? false,
-    answerCount: json['answer_count'] ?? 0,
-    createdAt: DateTime.parse(json['created_at']),
-    isAnonymous: json['is_anonymous'] ?? true,
-    locationLabel: json['location_label'],
+    upvotes: json['upvotes'] as int? ?? 0,
+    hasUpvoted: json['has_upvoted'] as bool? ?? false,
+    answerCount: json['answer_count'] as int? ?? 0,
+    createdAt: DateTime.parse(json['created_at'] as String),
+    locationLabel: json['location_label'] as String?,
   );
 
   Map<String, dynamic> toJson() => {
     'id': id,
-    'title': title,
-    'body': body,
+    'content': content,
+    'attachments': attachments,
     'author_alias': authorAlias,
+    'community_id': communityId,
     'college_id': collegeId,
     'college_name': collegeName,
     'category': category.name,
@@ -110,7 +110,6 @@ class Post {
     'has_upvoted': hasUpvoted,
     'answer_count': answerCount,
     'created_at': createdAt.toIso8601String(),
-    'is_anonymous': isAnonymous,
     'location_label': locationLabel,
   };
 }
@@ -145,27 +144,35 @@ class Answer {
   );
 }
 
-class College {
+/// Maps to the API comment shape for /api/posts/{post_id}/comments
+class Comment {
   final String id;
-  final String name;
-  final String city;
-  final String state;
+  final String postId;
+  final String body;
+  final String authorAlias;
+  final DateTime createdAt;
 
-  const College({
+  const Comment({
     required this.id,
-    required this.name,
-    required this.city,
-    required this.state,
+    required this.postId,
+    required this.body,
+    required this.authorAlias,
+    required this.createdAt,
   });
 
-  String get displayName => '$name, $city';
-
-  /// Maps the FastAPI /institutes response shape:
-  /// { id, institute_id, name, city, state }
-  factory College.fromJson(Map<String, dynamic> json) => College(
-    id: json['institute_id']?.toString() ?? json['id'].toString(),
-    name: json['name'] as String,
-    city: json['city'] as String,
-    state: json['state'] as String,
+  factory Comment.fromJson(Map<String, dynamic> json) => Comment(
+    id: json['id'] as String,
+    postId: json['post_id'] as String? ?? '',
+    body: json['body'] as String,
+    authorAlias: json['author_alias'] as String? ?? '',
+    createdAt: DateTime.parse(json['created_at'] as String),
   );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'post_id': postId,
+    'body': body,
+    'author_alias': authorAlias,
+    'created_at': createdAt.toIso8601String(),
+  };
 }

@@ -1,8 +1,7 @@
 // lib/screens/profile_screen.dart
-import 'package:campusassist/screens/auth_gate.dart';
+import 'package:campusassist/core/providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../services/data_service.dart';
 import '../theme/app_theme.dart';
 import '../viewmodel/auth_viewmodel.dart';
 
@@ -15,9 +14,7 @@ class ProfileScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final ds = DataService();
-    final college = ds.selectedCollege;
-    final user = ref.watch(authViewModelProvider).asData?.value;
+    final user = ref.watch(currentUserProvider);
     final displayName = user?.name.trim().isNotEmpty == true
         ? user!.name.trim()
         : 'Profile';
@@ -75,23 +72,23 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  if (college != null)
-                    Chip(
-                      avatar: const Icon(
-                        Icons.school_rounded,
-                        size: 14,
-                        color: AppTheme.primary,
-                      ),
-                      label: Text(
-                        college.name,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.primary,
-                        ),
-                      ),
-                      backgroundColor: AppTheme.primary.withOpacity(0.08),
-                      side: BorderSide.none,
-                    ),
+                  // if (college != null)
+                  //   Chip(
+                  //     avatar: const Icon(
+                  //       Icons.school_rounded,
+                  //       size: 14,
+                  //       color: AppTheme.primary,
+                  //     ),
+                  //     label: Text(
+                  //       college.name,
+                  //       style: const TextStyle(
+                  //         fontSize: 12,
+                  //         color: AppTheme.primary,
+                  //       ),
+                  //     ),
+                  //     backgroundColor: AppTheme.primary.withOpacity(0.08),
+                  //     side: BorderSide.none,
+                  //   ),
                 ],
               ),
             ),

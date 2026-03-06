@@ -46,6 +46,15 @@ class CommunityViewModel extends AsyncNotifier<List<Community>> {
     }
   }
 
+  /// Create a new community
+  Future<void> createCommunity({
+    required String name,
+    required String type,
+  }) async {
+    await _repository.createCommunity(name: name, type: type);
+    await fetchMyCommunities(); // refresh list
+  }
+
   /// Get a specific community details
   Future<Community> getCommunityDetails(String communityId) async {
     return _repository.getCommunityById(communityId);

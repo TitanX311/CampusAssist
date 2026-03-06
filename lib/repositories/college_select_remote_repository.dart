@@ -1,18 +1,21 @@
 // repositories/college_select_remote_repository.dart
+import 'package:campusassist/core/interceptors/auth_interceptor.dart';
+import 'package:campusassist/core/server_constants.dart';
+import 'package:campusassist/models/college_model.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/post_model.dart';
-
 final collegeSelectDioProvider = Provider<Dio>((ref) {
-  return Dio(
+  final dio = Dio(
     BaseOptions(
-      //todo: change to main ip
-      baseUrl: 'http://10.0.2.2:8000',
+      baseUrl: ServerConstants.baseURL,
       connectTimeout: const Duration(seconds: 8),
       receiveTimeout: const Duration(seconds: 8),
     ),
   );
+  dio.interceptors.add(AuthInterceptor(ref));
+  return dio;
 });
 
 final collegeSelectRemoteRepositoryProvider =
@@ -24,22 +27,38 @@ class CollegeSelectRemoteRepository {
   final Dio _dio;
   CollegeSelectRemoteRepository(this._dio);
 
-  /// GET /institutes?query=:q&page_size=30
-  Future<List<College>> searchColleges(String query) async {
+  Future<List<CollegeModel>> searchColleges(String query) async {
     try {
+      debugPrint(
+        '[CollegeSelectRepo] GET /api/college query="$query" page=1 page_size=20',
+      );
       final response = await _dio.get<Map<String, dynamic>>(
-        '/institutes',
+        '/college',
         queryParameters: {
           if (query.trim().isNotEmpty) 'query': query.trim(),
-          'page_size': 30,
+          'page': 1,
+          'page_size': 20,
         },
       );
-      final results = response.data!['results'] as List<dynamic>;
+      debugPrint('[CollegeSelectRepo] response: ${response.data}');
+      final data = response.data!;
+      final results =
+          (data['items'] ??
+                  data['results'] ??
+                  data['colleges'] ??
+                  data['data'] ??
+                  [])
+              as List<dynamic>;
+      debugPrint('[CollegeSelectRepo] parsed ${results.length} colleges');
       return results
-          .map((e) => College.fromJson(e as Map<String, dynamic>))
+          .map((e) => CollegeModel.fromMap(e as Map<String, dynamic>))
           .toList();
     } on DioException catch (e) {
+      debugPrint('[CollegeSelectRepo] DioException: ${e.type} ${e.message}');
       throw _mapDioError(e);
+    } catch (e) {
+      debugPrint('[CollegeSelectRepo] unexpected error: $e');
+      rethrow;
     }
   }
 

@@ -1,23 +1,24 @@
 // lib/screens/home_screen.dart
 import 'package:campusassist/widgets/app_logo_icon.dart';
+import 'package:campusassist/core/providers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/post_model.dart';
-import '../services/data_service.dart';
+import '../repositories/post_remote_repository.dart';
 import '../theme/app_theme.dart';
 import '../widgets/post_card.dart';
 import '../widgets/category_filter.dart';
 import 'post_detail_screen.dart';
 
-class HomeScreen extends StatefulWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
+class _HomeScreenState extends ConsumerState<HomeScreen>
     with SingleTickerProviderStateMixin {
-  final _ds = DataService();
   late TabController _tabCtrl;
   String _selectedCategory = 'All';
   List<Post> _myCollegePosts = [];
@@ -34,22 +35,13 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final college = _ds.selectedCollege;
-    final hasCollege = college != null && college.id.isNotEmpty;
-    final results = await Future.wait([
-      hasCollege
-          ? _ds.getMyCollegePosts(
-              category: _selectedCategory == 'All' ? null : _selectedCategory,
-            )
-          : Future.value(<Post>[]),
-      _ds.getAcrossIndiaPosts(
-        category: _selectedCategory == 'All' ? null : _selectedCategory,
-      ),
-    ]);
+    // TODO: replace with real API calls once college-scoped and India-wide
+    // post endpoints are available (e.g. GET /api/posts?college=... and
+    // GET /api/posts?scope=india).
     if (mounted) {
       setState(() {
-        _myCollegePosts = results[0];
-        _indiaPosts = results[1];
+        _myCollegePosts = [];
+        _indiaPosts = [];
         _loading = false;
       });
     }
@@ -61,9 +53,26 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<Post> _upvotePost(String id) async {
-    final updated = await _ds.upvotePost(id);
-    _load(); // refresh both lists
-    return updated;
+    Post? toggled;
+    setState(() {
+      Post _toggle(Post p) {
+        final t = p.copyWith(
+          upvotes: p.hasUpvoted ? p.upvotes - 1 : p.upvotes + 1,
+          hasUpvoted: !p.hasUpvoted,
+        );
+        toggled = t;
+        return t;
+      }
+
+      _myCollegePosts = _myCollegePosts
+          .map((p) => p.id == id ? _toggle(p) : p)
+          .toList();
+      _indiaPosts = _indiaPosts
+          .map((p) => p.id == id ? _toggle(p) : p)
+          .toList();
+    });
+    ref.read(postRemoteRepositoryProvider).likePost(id).ignore();
+    return toggled!;
   }
 
   void _openPost(Post post) {
@@ -75,7 +84,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
-    final college = _ds.selectedCollege;
+    final college = ref.watch(selectedCollegeProvider);
     return Scaffold(
       backgroundColor: AppTheme.surface,
       body: NestedScrollView(
@@ -246,7 +255,7 @@ class _PostList extends StatelessWidget {
         itemCount: posts.length,
         itemBuilder: (_, i) => PostCard(
           post: posts[i],
-          showCollegeName: showCollege,
+          // showCollegeName: showCollege,
           onTap: () => onTap(posts[i]),
           onUpvote: onUpvote,
         ),

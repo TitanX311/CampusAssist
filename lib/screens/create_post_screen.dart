@@ -2,38 +2,39 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:marquee/marquee.dart';
 import '../models/post_model.dart';
-import '../services/data_service.dart';
+import '../repositories/post_remote_repository.dart';
 import '../theme/app_theme.dart';
 import 'location_picker_screen.dart';
 
-class CreatePostScreen extends StatefulWidget {
-  const CreatePostScreen({super.key});
+class CreatePostScreen extends ConsumerStatefulWidget {
+  final String? communityId;
+  final String? communityName;
+
+  const CreatePostScreen({super.key, this.communityId, this.communityName});
 
   @override
-  State<CreatePostScreen> createState() => _CreatePostScreenState();
+  ConsumerState<CreatePostScreen> createState() => _CreatePostScreenState();
 }
 
-class _CreatePostScreenState extends State<CreatePostScreen> {
-  final _titleCtrl = TextEditingController();
-  final _bodyCtrl = TextEditingController();
+class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
+  final _contentCtrl = TextEditingController();
   final _locationCtrl = TextEditingController();
   PostCategory _category = PostCategory.general;
-  bool _isAnonymous = true;
+  // bool _isAnonymous = true;
   bool _addLocation = false;
   bool _submitting = false;
   PickedLocation? _pickedLocation;
-  final _ds = DataService();
   final _formKey = GlobalKey<FormState>();
   final ImagePicker _imagePicker = ImagePicker();
   final List<XFile> _attachments = [];
 
   @override
   void dispose() {
-    _titleCtrl.dispose();
-    _bodyCtrl.dispose();
+    _contentCtrl.dispose();
     _locationCtrl.dispose();
     super.dispose();
   }
@@ -116,20 +117,21 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    if (widget.communityId == null || widget.communityId!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No community selected for this post.')),
+      );
+      return;
+    }
     setState(() => _submitting = true);
     try {
-      await _ds.createPost(
-        title: _titleCtrl.text.trim(),
-        body: _bodyCtrl.text.trim(),
-        category: _category,
-        locationLabel: _addLocation
-            ? (_pickedLocation?.label ??
-                  (_locationCtrl.text.trim().isNotEmpty
-                      ? _locationCtrl.text.trim()
-                      : null))
-            : null,
-        isAnonymous: _isAnonymous,
-      );
+      await ref
+          .read(postRemoteRepositoryProvider)
+          .createPost(
+            communityId: widget.communityId!,
+            content: _contentCtrl.text.trim(),
+            attachments: const [],
+          );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -159,7 +161,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final college = _ds.selectedCollege;
+    final communityName = widget.communityName;
     return Scaffold(
       backgroundColor: AppTheme.surface,
       appBar: AppBar(
@@ -200,8 +202,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // College badge
-              if (college != null)
+              // Community badge
+              if (communityName != null)
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 14,
@@ -215,7 +217,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Icon(
-                        Icons.school_rounded,
+                        Icons.people_rounded,
                         size: 14,
                         color: AppTheme.primary,
                       ),
@@ -224,7 +226,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                         child: SizedBox(
                           height: 20,
                           child: Marquee(
-                            text: 'Posting to: ${college.name}',
+                            text: 'Posting to: $communityName',
                             style: const TextStyle(
                               fontSize: 13,
                               color: AppTheme.primary,
@@ -316,29 +318,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               ),
               const SizedBox(height: 20),
 
-              // Title
-              const Text(
-                'Title *',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _titleCtrl,
-                decoration: const InputDecoration(
-                  hintText: 'Summarise your question in one line...',
-                ),
-                maxLength: 120,
-                validator: (v) => (v == null || v.trim().isEmpty)
-                    ? 'Title is required'
-                    : null,
-              ),
-              const SizedBox(height: 16),
-
-              // Body
+              // Content
               const Text(
                 'Description *',
                 style: TextStyle(
@@ -349,13 +329,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               ),
               const SizedBox(height: 8),
               TextFormField(
-                controller: _bodyCtrl,
+                controller: _contentCtrl,
                 decoration: const InputDecoration(
-                  hintText:
-                      'Provide more context about your question or issue...',
+                  hintText: 'What do you want to share or ask?',
                 ),
-                maxLines: 5,
-                maxLength: 1000,
+                maxLines: 6,
+                maxLength: 2000,
                 validator: (v) => (v == null || v.trim().isEmpty)
                     ? 'Description is required'
                     : null,
@@ -569,9 +548,11 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                                               builder: (_) =>
                                                   LocationPickerScreen(
                                                     collegeId:
-                                                        college?.id ?? '',
+                                                        widget.communityId ??
+                                                        '',
                                                     collegeName:
-                                                        college?.name ?? '',
+                                                        widget.communityName ??
+                                                        '',
                                                     initialLabel: _locationCtrl
                                                         .text
                                                         .trim(),
@@ -731,35 +712,35 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               const SizedBox(height: 12),
 
               // Anonymous toggle
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.divider),
-                ),
-                child: SwitchListTile(
-                  value: _isAnonymous,
-                  onChanged: (v) => setState(() => _isAnonymous = v),
-                  title: const Text(
-                    'Post Anonymously',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                  ),
-                  subtitle: const Text(
-                    'Your identity will be hidden',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                  secondary: const Icon(
-                    Icons.shield_outlined,
-                    color: AppTheme.success,
-                  ),
-                  activeColor: AppTheme.success,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 4,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 40),
+              // Container(
+              //   decoration: BoxDecoration(
+              //     color: Colors.white,
+              //     borderRadius: BorderRadius.circular(12),
+              //     border: Border.all(color: AppTheme.divider),
+              //   ),
+              //   child: SwitchListTile(
+              //     value: _isAnonymous,
+              //     onChanged: (v) => setState(() => _isAnonymous = v),
+              //     title: const Text(
+              //       'Post Anonymously',
+              //       style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+              //     ),
+              //     subtitle: const Text(
+              //       'Your identity will be hidden',
+              //       style: TextStyle(fontSize: 12),
+              //     ),
+              //     secondary: const Icon(
+              //       Icons.shield_outlined,
+              //       color: AppTheme.success,
+              //     ),
+              //     activeColor: AppTheme.success,
+              //     contentPadding: const EdgeInsets.symmetric(
+              //       horizontal: 16,
+              //       vertical: 4,
+              //     ),
+              //   ),
+              // ),
+              // const SizedBox(height: 40),
             ],
           ),
         ),
