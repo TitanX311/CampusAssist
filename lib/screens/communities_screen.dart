@@ -2,10 +2,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/community_model.dart';
 import '../models/post_model.dart';
 import '../services/data_service.dart';
 import '../theme/app_theme.dart';
 import '../viewmodel/college_select_viewmodel.dart';
+import '../viewmodel/community_viewmodel.dart';
 
 class CommunitiesScreen extends ConsumerStatefulWidget {
   const CommunitiesScreen({super.key});
@@ -16,9 +18,6 @@ class CommunitiesScreen extends ConsumerStatefulWidget {
 
 class _CommunitiesScreenState extends ConsumerState<CommunitiesScreen> {
   final _ds = DataService();
-
-  // TODO: Replace with real API data from GET /api/community/my-communities
-  final List<_CommunityItem> _joinedCommunities = [];
 
   void _openCollegePicker() async {
     final picked = await showModalBottomSheet<College>(
@@ -48,7 +47,7 @@ class _CommunitiesScreenState extends ConsumerState<CommunitiesScreen> {
           ),
           TextButton(
             onPressed: () {
-              // TODO: call DELETE /api/community/{id}/leave for the college community
+              // TODO: Implement leave college via community API when college is a community
               _ds.setCollege(
                 const College(id: '', name: '', city: '', state: ''),
               );
@@ -66,6 +65,7 @@ class _CommunitiesScreenState extends ConsumerState<CommunitiesScreen> {
   Widget build(BuildContext context) {
     final college = _ds.selectedCollege;
     final hasCollege = college != null && college.id.isNotEmpty;
+    final communitiesAsync = ref.watch(communityViewModelProvider);
 
     return Scaffold(
       backgroundColor: AppTheme.surface,
@@ -132,49 +132,89 @@ class _CommunitiesScreenState extends ConsumerState<CommunitiesScreen> {
           const _SectionHeader(title: 'My Communities'),
           const SizedBox(height: 10),
 
-          if (_joinedCommunities.isEmpty)
-            _EmptyActionTile(
-              icon: Icons.people_outline_rounded,
-              title: 'No communities joined yet',
-              subtitle: 'Join interest groups happening on your campus',
-              actionLabel: 'Explore Communities',
-              onTap: () {
-                // TODO: navigate to community discovery screen
-              },
-            )
-          else
-            ..._joinedCommunities.map(
-              (c) => _CommunityCard(
-                item: c,
-                onLeave: () {
-                  // TODO: DELETE /api/community/{c.id}/leave
-                  setState(() => _joinedCommunities.remove(c));
-                },
+          communitiesAsync.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.cloud_off_rounded,
+                      size: 48,
+                      color: AppTheme.textLight,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Error loading communities\n$e',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
+            data: (communities) {
+              if (communities.isEmpty) {
+                return _EmptyActionTile(
+                  icon: Icons.people_outline_rounded,
+                  title: 'No communities joined yet',
+                  subtitle: 'Join interest groups happening on your campus',
+                  actionLabel: 'Explore Communities',
+                  onTap: () {
+                    // TODO: navigate to community discovery screen
+                  },
+                );
+              }
+              return Column(
+                children: communities
+                    .map(
+                      (community) => _CommunityCard(
+                        community: community,
+                        onLeave: () async {
+                          try {
+                            // This call now triggers a state update inside the ViewModel
+                            await ref
+                                .read(communityViewModelProvider.notifier)
+                                .leaveCommunity(community.id);
+
+                            // Optional: Success feedback
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Left community successfully'),
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Error leaving community: $e'),
+                                  backgroundColor: Colors
+                                      .red, // Using a standard error color
+                                ),
+                              );
+                            }
+                          }
+                        },
+                      ),
+                    )
+                    .toList(),
+              );
+            },
+          ),
         ],
       ),
     );
   }
 }
 
-// ── Data model placeholder ────────────────────────────────────────────────────
-
-class _CommunityItem {
-  final String id;
-  final String name;
-  final String description;
-  final int memberCount;
-
-  const _CommunityItem({
-    required this.id,
-    required this.name,
-    required this.description,
-    required this.memberCount,
-  });
-}
-
-// ── Widgets ───────────────────────────────────────────────────────────────────
+// Widgets ───────────────────────────────────────────────────────────────────────
 
 class _SectionHeader extends StatelessWidget {
   final String title;
@@ -383,10 +423,10 @@ class _JoinedBadge extends StatelessWidget {
 }
 
 class _CommunityCard extends StatelessWidget {
-  final _CommunityItem item;
+  final Community community;
   final VoidCallback onLeave;
 
-  const _CommunityCard({required this.item, required this.onLeave});
+  const _CommunityCard({required this.community, required this.onLeave});
 
   @override
   Widget build(BuildContext context) {
@@ -426,7 +466,7 @@ class _CommunityCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  item.name,
+                  community.name,
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -435,7 +475,7 @@ class _CommunityCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${item.memberCount} members',
+                  '${community.member_users.length} members',
                   style: const TextStyle(
                     fontSize: 12,
                     color: AppTheme.textSecondary,

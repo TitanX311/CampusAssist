@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:campusassist/models/user_model.dart';
 import 'package:campusassist/repositories/auth_remote_repository.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../repositories/auth_local_repository.dart';
@@ -34,10 +35,27 @@ class AuthViewModel extends AsyncNotifier<UserModel?> {
       print("Session refreshed");
 
       await local.saveTokens(user.accessToken, user.refreshToken);
+      await local.saveUserProfile(user);
 
       return user;
+    } on DioException catch (e) {
+      final isAuthError = e.type == DioExceptionType.badResponse &&
+          (e.response?.statusCode == 401 || e.response?.statusCode == 403);
+
+      if (isAuthError) {
+        // Refresh token is invalid/expired — force sign-in
+        print("Auth error during refresh — clearing tokens");
+        await local.clearTokens();
+        return null;
+      }
+
+      // Server is unreachable (down, no network, timeout) — keep user logged in
+      print("Network error during refresh — using cached profile: $e");
+      return await local.getCachedUserProfile();
     } catch (e) {
-      print("Refresh failed: $e");
+      print("Unexpected error during refresh: $e");
+      final cached = await local.getCachedUserProfile();
+      if (cached != null) return cached;
       await local.clearTokens();
       return null;
     }
@@ -62,6 +80,7 @@ class AuthViewModel extends AsyncNotifier<UserModel?> {
         result.value!.accessToken,
         result.value!.refreshToken,
       );
+      await local.saveUserProfile(result.value!);
     }
 
     state = result;
@@ -89,6 +108,7 @@ class AuthViewModel extends AsyncNotifier<UserModel?> {
         result.value!.accessToken,
         result.value!.refreshToken,
       );
+      await local.saveUserProfile(result.value!);
     }
 
     state = result;
@@ -109,6 +129,7 @@ class AuthViewModel extends AsyncNotifier<UserModel?> {
         result.value!.accessToken,
         result.value!.refreshToken,
       );
+      await local.saveUserProfile(result.value!);
     }
 
     state = result;

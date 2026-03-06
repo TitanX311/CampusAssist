@@ -68,7 +68,16 @@ class AuthInterceptor extends Interceptor {
       } catch (e) {
         print("Refresh failed → $e");
 
-        await ref.read(authLocalRepositoryProvider).clearTokens();
+        // Only clear tokens if the server explicitly rejected the refresh token
+        // (401/403). For network errors (server down), keep the user logged in.
+        final isAuthError = e is DioException &&
+            e.type == DioExceptionType.badResponse &&
+            (e.response?.statusCode == 401 || e.response?.statusCode == 403);
+
+        if (isAuthError) {
+          await ref.read(authLocalRepositoryProvider).clearTokens();
+        }
+
         handler.next(err);
       }
     } else {

@@ -317,7 +317,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
                                     controller: _nameCtrl,
                                     textInputAction: TextInputAction.next,
                                     decoration: InputDecoration(
-                                      hintText: 'Your alias e.g. Student#4821',
+                                      hintText: 'Your display name',
                                       prefixIcon: const Icon(
                                         Icons.badge_outlined,
                                         color: AppTheme.textLight,

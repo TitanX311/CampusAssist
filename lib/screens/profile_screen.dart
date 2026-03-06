@@ -17,6 +17,13 @@ class ProfileScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final ds = DataService();
     final college = ds.selectedCollege;
+    final user = ref.watch(authViewModelProvider).asData?.value;
+    final displayName = user?.name.trim().isNotEmpty == true
+        ? user!.name.trim()
+        : 'Profile';
+    final subtitle = user?.email.trim().isNotEmpty == true
+        ? user!.email.trim()
+        : 'CampusAssist member';
     return Scaffold(
       backgroundColor: AppTheme.surface,
       appBar: AppBar(title: const Text('My Profile')),
@@ -52,17 +59,17 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  const Text(
-                    'Student#4821',
-                    style: TextStyle(
+                  Text(
+                    displayName,
+                    style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w700,
                       color: AppTheme.textPrimary,
                     ),
                   ),
-                  const Text(
-                    'Anonymous Member',
-                    style: TextStyle(
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
                       fontSize: 13,
                       color: AppTheme.textSecondary,
                     ),
@@ -95,11 +102,11 @@ class ProfileScreen extends ConsumerWidget {
               padding: const EdgeInsets.symmetric(vertical: 16),
               child: const Row(
                 children: [
-                  _StatItem(label: 'Posts', value: '3'),
+                  _StatItem(label: 'Posts', value: '0'),
                   _Divider(),
-                  _StatItem(label: 'Answers', value: '12'),
+                  _StatItem(label: 'Answers', value: '0'),
                   _Divider(),
-                  _StatItem(label: 'Upvotes\nReceived', value: '47'),
+                  _StatItem(label: 'Upvotes\nReceived', value: '0'),
                 ],
               ),
             ),

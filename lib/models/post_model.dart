@@ -35,7 +35,7 @@ class Post {
   final String id;
   final String title;
   final String body;
-  final String authorAlias; // anonymized handle e.g. "Student#4821"
+  final String authorAlias; // anonymized handle shown in the UI
   final String collegeId;
   final String collegeName;
   final PostCategory category;
@@ -44,7 +44,7 @@ class Post {
   final int answerCount;
   final DateTime createdAt;
   final bool isAnonymous;
-  final String? locationLabel; // e.g. "Block C Hostel" – for map feature
+  final String? locationLabel; // selected campus landmark label
 
   const Post({
     required this.id,
