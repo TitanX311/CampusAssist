@@ -39,6 +39,7 @@ class AuthViewModel extends AsyncNotifier<UserModel?> {
       await local.saveTokens(user.accessToken, user.refreshToken);
       await local.saveUserProfile(user);
 
+      print("Session refreshed — userType=${user.userType}");
       return user;
     } on DioException catch (e) {
       final isAuthError =

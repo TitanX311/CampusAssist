@@ -15,6 +15,7 @@ class AuthInterceptor extends Interceptor {
     RequestInterceptorHandler handler,
   ) async {
     print("REQUEST → ${options.method} ${options.path}");
+    print("FULL URL → ${options.uri}");
 
     final local = ref.read(authLocalRepositoryProvider);
     final accessToken = await local.getAccessToken();
@@ -30,8 +31,11 @@ class AuthInterceptor extends Interceptor {
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
-    print("ERROR → ${err.response?.statusCode}");
-    print("FAILED REQUEST → ${err.requestOptions.path}");
+    print(
+      "ERROR → status=${err.response?.statusCode} type=${err.type} msg=${err.message}",
+    );
+    print("FAILED URL → ${err.requestOptions.uri}");
+    if (err.error != null) print("UNDERLYING ERROR → ${err.error}");
 
     if (err.response?.statusCode == 401) {
       print("401 detected → attempting refresh");
@@ -70,7 +74,8 @@ class AuthInterceptor extends Interceptor {
 
         // Only clear tokens if the server explicitly rejected the refresh token
         // (401/403). For network errors (server down), keep the user logged in.
-        final isAuthError = e is DioException &&
+        final isAuthError =
+            e is DioException &&
             e.type == DioExceptionType.badResponse &&
             (e.response?.statusCode == 401 || e.response?.statusCode == 403);
 

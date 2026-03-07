@@ -3,7 +3,9 @@ import 'dart:async';
 
 import 'package:campusassist/models/post_model.dart';
 import 'package:campusassist/repositories/community_remote_repository.dart';
+import 'package:campusassist/repositories/feed_repository.dart';
 import 'package:campusassist/repositories/post_remote_repository.dart';
+import 'package:campusassist/viewmodel/auth_viewmodel.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -135,214 +137,338 @@ class PostListNotifier extends AsyncNotifier<List<Post>> {
   }
 }
 
-// ── Feed (all joined communities, merged newest-first) ───────────────────────
+// ── Feed state ────────────────────────────────────────────────────────────────
 
-final feedProvider = AsyncNotifierProvider<FeedNotifier, List<Post>>(
+class FeedState {
+  final List<Post> posts;
+  final int? nextCursor;
+  final bool isLoadingMore;
+  final bool hasMore;
+
+  const FeedState({
+    this.posts = const [],
+    this.nextCursor,
+    this.isLoadingMore = false,
+    this.hasMore = true,
+  });
+
+  FeedState copyWith({
+    List<Post>? posts,
+    int? nextCursor,
+    bool clearCursor = false,
+    bool? isLoadingMore,
+    bool? hasMore,
+  }) => FeedState(
+    posts: posts ?? this.posts,
+    nextCursor: clearCursor ? null : (nextCursor ?? this.nextCursor),
+    isLoadingMore: isLoadingMore ?? this.isLoadingMore,
+    hasMore: hasMore ?? this.hasMore,
+  );
+}
+
+// ── My Feed (personalised — /api/feed/my) ─────────────────────────────────────
+
+final feedProvider = AsyncNotifierProvider<FeedNotifier, FeedState>(
   FeedNotifier.new,
 );
 
-class FeedNotifier extends AsyncNotifier<List<Post>> {
-  PostRemoteRepository get _repo => ref.read(postRemoteRepositoryProvider);
+class FeedNotifier extends AsyncNotifier<FeedState> {
+  FeedRepository get _feedRepo => ref.read(feedRepositoryProvider);
   CommunityRemoteRepository get _communityRepo =>
       ref.read(communityRemoteRepositoryProvider);
 
+  /// communityId → communityName cache, populated lazily.
+  final _nameCache = <String, String>{};
+
+  String? get _userType => ref.read(authViewModelProvider).value?.userType;
+
   @override
-  Future<List<Post>> build() => _loadFeed();
+  Future<FeedState> build() {
+    debugPrint('[FeedNotifier] build() — initial load, userType=$_userType');
+    if (_userType != null && _userType != 'USER') {
+      debugPrint(
+        '[FeedNotifier] userType=$_userType — feed API not available, returning empty',
+      );
+      return Future.value(const FeedState(hasMore: false));
+    }
+    return _load(cursor: 0, existing: const FeedState());
+  }
 
-  Future<List<Post>> _loadFeed({String? category}) async {
-    final communities = await _communityRepo.getMyCommunities();
-    if (communities.isEmpty) return [];
+  Future<FeedState> _load({
+    required int cursor,
+    required FeedState existing,
+  }) async {
+    debugPrint('[FeedNotifier] _load() cursor=$cursor');
 
-    final nameById = {for (final c in communities) c.id: c.name};
+    // Warm the community-name cache (best-effort, non-blocking)
+    if (_nameCache.isEmpty) {
+      debugPrint('[FeedNotifier] warming community-name cache');
+      try {
+        final communities = await _communityRepo.getMyCommunities();
+        for (final c in communities) {
+          _nameCache[c.id] = c.name;
+        }
+        debugPrint(
+          '[FeedNotifier] name cache warmed — ${_nameCache.length} communities',
+        );
+      } catch (e) {
+        debugPrint('[FeedNotifier] name cache warm failed: $e');
+      }
+    }
 
-    final results = await Future.wait(
-      communities.map(
-        (c) => _repo
-            .getPostsByCommunity(c.id, pageSize: 20)
-            .then(
-              (posts) =>
-                  posts.map((p) => _enrichCommunityName(p, nameById)).toList(),
-            )
-            .catchError((_) => <Post>[]),
+    final page = await _feedRepo.getMyFeed(cursor: cursor, pageSize: 20);
+    debugPrint(
+      '[FeedNotifier] GET /feed/my → ${page.items.length} items, '
+      'nextCursor=${page.nextCursor}, hasMore=${page.hasMore}, '
+      'totalInCache=${page.totalInCache}, builtFresh=${page.builtFresh}',
+    );
+
+    final newPosts = page.items
+        .map(
+          (item) =>
+              item.toPost(communityName: _nameCache[item.communityId] ?? ''),
+        )
+        .toList();
+
+    final merged = cursor == 0 ? newPosts : [...existing.posts, ...newPosts];
+
+    // De-duplicate by id
+    final seen = <String>{};
+    final deduped = merged.where((p) => seen.add(p.id)).toList();
+    debugPrint(
+      '[FeedNotifier] merged list → ${deduped.length} posts (${merged.length - deduped.length} dupes removed)',
+    );
+
+    return FeedState(
+      posts: deduped,
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
+      isLoadingMore: false,
+    );
+  }
+
+  Future<void> refresh() async {
+    debugPrint('[FeedNotifier] refresh()');
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(
+      () => _load(cursor: 0, existing: const FeedState()),
+    );
+    debugPrint('[FeedNotifier] refresh() done — invalidating server cache');
+    _feedRepo.invalidateMyCache();
+  }
+
+  Future<void> loadMore() async {
+    final s = state.value;
+    if (s == null || s.isLoadingMore || !s.hasMore || s.nextCursor == null) {
+      debugPrint(
+        '[FeedNotifier] loadMore() skipped — '
+        'isLoadingMore=${s?.isLoadingMore}, hasMore=${s?.hasMore}, nextCursor=${s?.nextCursor}',
+      );
+      return;
+    }
+    debugPrint('[FeedNotifier] loadMore() cursor=${s.nextCursor}');
+    state = AsyncData(s.copyWith(isLoadingMore: true));
+    try {
+      final next = await _load(cursor: s.nextCursor!, existing: s);
+      state = AsyncData(next);
+      debugPrint(
+        '[FeedNotifier] loadMore() done — total posts=${next.posts.length}',
+      );
+    } catch (e) {
+      debugPrint('[FeedNotifier] loadMore() error: $e');
+      state = AsyncData(s.copyWith(isLoadingMore: false));
+    }
+  }
+
+  /// Prepends a newly created post so the feed reflects it immediately.
+  void prependPost(Post post) {
+    debugPrint('[FeedNotifier] prependPost() postId=${post.id}');
+    state = state.whenData((s) {
+      if (s.posts.any((p) => p.id == post.id)) {
+        debugPrint('[FeedNotifier] prependPost() — already exists, skipping');
+        return s;
+      }
+      return s.copyWith(posts: [post, ...s.posts]);
+    });
+    // Invalidate server cache so next pull includes the new post
+    _feedRepo.invalidateMyCache();
+  }
+
+  Future<void> toggleLike(String postId) async {
+    debugPrint(
+      '[FeedNotifier] toggleLike() postId=$postId wasUpvoted=${_wasUpvoted(postId)}',
+    );
+    _optimisticToggle(postId);
+    try {
+      await ref
+          .read(postRemoteRepositoryProvider)
+          .likePost(postId, hasUpvoted: _wasUpvoted(postId));
+      debugPrint('[FeedNotifier] toggleLike() success');
+    } catch (e) {
+      debugPrint('[FeedNotifier] toggleLike() failed — reverting: $e');
+      _optimisticToggle(postId); // revert
+    }
+  }
+
+  bool _wasUpvoted(String postId) =>
+      state.value?.posts
+          .firstWhere((p) => p.id == postId, orElse: () => _dummyPost)
+          .hasUpvoted ??
+      false;
+
+  void _optimisticToggle(String postId) {
+    state = state.whenData(
+      (s) => s.copyWith(
+        posts: s.posts.map((p) {
+          if (p.id != postId) return p;
+          return p.copyWith(
+            upvotes: p.hasUpvoted ? p.upvotes - 1 : p.upvotes + 1,
+            hasUpvoted: !p.hasUpvoted,
+          );
+        }).toList(),
       ),
     );
+  }
+}
+
+// ── Across-India Feed (/api/feed/india) ───────────────────────────────────────
+
+final globalFeedProvider = AsyncNotifierProvider<GlobalFeedNotifier, FeedState>(
+  GlobalFeedNotifier.new,
+);
+
+class GlobalFeedNotifier extends AsyncNotifier<FeedState> {
+  FeedRepository get _feedRepo => ref.read(feedRepositoryProvider);
+
+  String? get _userType => ref.read(authViewModelProvider).value?.userType;
+
+  @override
+  Future<FeedState> build() {
+    debugPrint(
+      '[GlobalFeedNotifier] build() — initial load, userType=$_userType',
+    );
+    if (_userType != null && _userType != 'USER') {
+      debugPrint(
+        '[GlobalFeedNotifier] userType=$_userType — feed API not available, returning empty',
+      );
+      return Future.value(const FeedState(hasMore: false));
+    }
+    return _load(cursor: 0, existing: const FeedState());
+  }
+
+  Future<FeedState> _load({
+    required int cursor,
+    required FeedState existing,
+  }) async {
+    debugPrint('[GlobalFeedNotifier] _load() cursor=$cursor');
+    final page = await _feedRepo.getIndiaFeed(cursor: cursor, pageSize: 20);
+    debugPrint(
+      '[GlobalFeedNotifier] GET /feed/india → ${page.items.length} items, '
+      'nextCursor=${page.nextCursor}, hasMore=${page.hasMore}, '
+      'totalInCache=${page.totalInCache}, builtFresh=${page.builtFresh}',
+    );
+
+    final newPosts = page.items.map((item) => item.toPost()).toList();
+
+    final merged = cursor == 0 ? newPosts : [...existing.posts, ...newPosts];
 
     final seen = <String>{};
-    final merged =
-        results.expand((list) => list).where((p) => seen.add(p.id)).toList()
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final deduped = merged.where((p) => seen.add(p.id)).toList();
+    debugPrint('[GlobalFeedNotifier] merged list → ${deduped.length} posts');
 
-    return merged;
-  }
-
-  Future<void> refresh({String? category}) async {
-    state = const AsyncLoading();
-    state = await AsyncValue.guard(() => _loadFeed(category: category));
-  }
-
-  /// Fills in collegeName (used as communityName in the UI) on a post.
-  static Post _enrichCommunityName(Post p, Map<String, String> nameById) {
-    if (p.collegeName.isNotEmpty) return p;
-    final name = nameById[p.communityId];
-    if (name == null || name.isEmpty) return p;
-    return Post(
-      id: p.id,
-      content: p.content,
-      attachments: p.attachments,
-      authorAlias: p.authorAlias,
-      authorPicture: p.authorPicture,
-      userId: p.userId,
-      communityId: p.communityId,
-      collegeId: p.collegeId,
-      collegeName: name,
-      category: p.category,
-      upvotes: p.upvotes,
-      hasUpvoted: p.hasUpvoted,
-      answerCount: p.answerCount,
-      views: p.views,
-      createdAt: p.createdAt,
-      locationLabel: p.locationLabel,
+    return FeedState(
+      posts: deduped,
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
+      isLoadingMore: false,
     );
   }
 
-  /// Call this after creating a new post so the feed shows it immediately
-  /// without a full network round-trip.
+  Future<void> refresh() async {
+    debugPrint('[GlobalFeedNotifier] refresh()');
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(
+      () => _load(cursor: 0, existing: const FeedState()),
+    );
+    debugPrint('[GlobalFeedNotifier] refresh() done');
+  }
+
+  Future<void> loadMore() async {
+    final s = state.value;
+    if (s == null || s.isLoadingMore || !s.hasMore || s.nextCursor == null) {
+      debugPrint(
+        '[GlobalFeedNotifier] loadMore() skipped — '
+        'isLoadingMore=${s?.isLoadingMore}, hasMore=${s?.hasMore}, nextCursor=${s?.nextCursor}',
+      );
+      return;
+    }
+    debugPrint('[GlobalFeedNotifier] loadMore() cursor=${s.nextCursor}');
+    state = AsyncData(s.copyWith(isLoadingMore: true));
+    try {
+      final next = await _load(cursor: s.nextCursor!, existing: s);
+      state = AsyncData(next);
+      debugPrint(
+        '[GlobalFeedNotifier] loadMore() done — total posts=${next.posts.length}',
+      );
+    } catch (e) {
+      debugPrint('[GlobalFeedNotifier] loadMore() error: $e');
+      state = AsyncData(s.copyWith(isLoadingMore: false));
+    }
+  }
+
   void prependPost(Post post) {
-    state = state.whenData((posts) {
-      if (posts.any((p) => p.id == post.id)) return posts;
-      return [post, ...posts];
+    debugPrint('[GlobalFeedNotifier] prependPost() postId=${post.id}');
+    state = state.whenData((s) {
+      if (s.posts.any((p) => p.id == post.id)) return s;
+      return s.copyWith(posts: [post, ...s.posts]);
     });
   }
 
   Future<void> toggleLike(String postId) async {
-    final currentPost = state.value?.firstWhere(
-      (p) => p.id == postId,
-      orElse: () => throw StateError('Post $postId not found'),
+    debugPrint(
+      '[GlobalFeedNotifier] toggleLike() postId=$postId wasUpvoted=${_wasUpvoted(postId)}',
     );
-    final wasUpvoted = currentPost?.hasUpvoted ?? false;
-
-    state = state.whenData(
-      (posts) => posts
-          .map(
-            (p) => p.id == postId
-                ? p.copyWith(
-                    upvotes: wasUpvoted ? p.upvotes - 1 : p.upvotes + 1,
-                    hasUpvoted: !wasUpvoted,
-                  )
-                : p,
-          )
-          .toList(),
-    );
+    _optimisticToggle(postId);
     try {
-      await _repo.likePost(postId, hasUpvoted: wasUpvoted);
-    } catch (_) {
-      state = state.whenData(
-        (posts) => posts
-            .map(
-              (p) => p.id == postId
-                  ? p.copyWith(
-                      upvotes: wasUpvoted ? p.upvotes + 1 : p.upvotes - 1,
-                      hasUpvoted: wasUpvoted,
-                    )
-                  : p,
-            )
-            .toList(),
-      );
+      await ref
+          .read(postRemoteRepositoryProvider)
+          .likePost(postId, hasUpvoted: _wasUpvoted(postId));
+      debugPrint('[GlobalFeedNotifier] toggleLike() success');
+    } catch (e) {
+      debugPrint('[GlobalFeedNotifier] toggleLike() failed — reverting: $e');
+      _optimisticToggle(postId); // revert
     }
   }
-}
 
-// ── Global feed (Across India — all public communities) ──────────────────────
+  bool _wasUpvoted(String postId) =>
+      state.value?.posts
+          .firstWhere((p) => p.id == postId, orElse: () => _dummyPost)
+          .hasUpvoted ??
+      false;
 
-final globalFeedProvider =
-    AsyncNotifierProvider<GlobalFeedNotifier, List<Post>>(
-      GlobalFeedNotifier.new,
-    );
-
-class GlobalFeedNotifier extends AsyncNotifier<List<Post>> {
-  PostRemoteRepository get _repo => ref.read(postRemoteRepositoryProvider);
-  CommunityRemoteRepository get _communityRepo =>
-      ref.read(communityRemoteRepositoryProvider);
-
-  @override
-  Future<List<Post>> build() => _loadGlobalFeed();
-
-  Future<List<Post>> _loadGlobalFeed({String? category}) async {
-    final communities = await _communityRepo.getMyCommunities();
-    if (communities.isEmpty) return [];
-
-    final nameById = {for (final c in communities) c.id: c.name};
-
-    final results = await Future.wait(
-      communities.map(
-        (c) => _repo
-            .getPostsByCommunity(c.id, pageSize: 30)
-            .then(
-              (posts) => posts
-                  .map((p) => FeedNotifier._enrichCommunityName(p, nameById))
-                  .toList(),
-            )
-            .catchError((_) => <Post>[]),
+  void _optimisticToggle(String postId) {
+    state = state.whenData(
+      (s) => s.copyWith(
+        posts: s.posts.map((p) {
+          if (p.id != postId) return p;
+          return p.copyWith(
+            upvotes: p.hasUpvoted ? p.upvotes - 1 : p.upvotes + 1,
+            hasUpvoted: !p.hasUpvoted,
+          );
+        }).toList(),
       ),
     );
-
-    final seen = <String>{};
-    final merged =
-        results.expand((list) => list).where((p) => seen.add(p.id)).toList()
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
-    return merged;
-  }
-
-  Future<void> refresh({String? category}) async {
-    state = const AsyncLoading();
-    state = await AsyncValue.guard(() => _loadGlobalFeed(category: category));
-  }
-
-  void prependPost(Post post) {
-    state = state.whenData((posts) {
-      if (posts.any((p) => p.id == post.id)) return posts;
-      return [post, ...posts];
-    });
-  }
-
-  Future<void> toggleLike(String postId) async {
-    final currentPost = state.value?.firstWhere(
-      (p) => p.id == postId,
-      orElse: () => throw StateError('Post $postId not found'),
-    );
-    final wasUpvoted = currentPost?.hasUpvoted ?? false;
-
-    state = state.whenData(
-      (posts) => posts
-          .map(
-            (p) => p.id == postId
-                ? p.copyWith(
-                    upvotes: wasUpvoted ? p.upvotes - 1 : p.upvotes + 1,
-                    hasUpvoted: !wasUpvoted,
-                  )
-                : p,
-          )
-          .toList(),
-    );
-    try {
-      await _repo.likePost(postId, hasUpvoted: wasUpvoted);
-    } catch (_) {
-      state = state.whenData(
-        (posts) => posts
-            .map(
-              (p) => p.id == postId
-                  ? p.copyWith(
-                      upvotes: wasUpvoted ? p.upvotes + 1 : p.upvotes - 1,
-                      hasUpvoted: wasUpvoted,
-                    )
-                  : p,
-            )
-            .toList(),
-      );
-    }
   }
 }
+
+/// A sentinel Post used in `orElse` guards — never rendered.
+final _dummyPost = Post(
+  id: '',
+  content: '',
+  authorAlias: '',
+  category: PostCategory.general,
+  createdAt: DateTime(2000),
+);
 
 // ── Comments ──────────────────────────────────────────────────────────────────
 

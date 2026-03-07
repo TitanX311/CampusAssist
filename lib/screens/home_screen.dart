@@ -5,10 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/post_model.dart';
 import '../theme/app_theme.dart';
 import '../widgets/post_card.dart';
-import '../widgets/category_filter.dart';
+import '../widgets/skeleton_loaders.dart';
 import '../viewmodel/post_viewmodel.dart';
 import '../viewmodel/notification_viewmodel.dart';
-import '../widgets/skeleton_loaders.dart';
 import 'package:campusassist/screens/post_detail_screen.dart';
 import 'package:campusassist/screens/notifications_screen.dart';
 
@@ -22,7 +21,6 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabCtrl;
-  String _selectedCategory = 'All';
 
   @override
   void initState() {
@@ -34,16 +32,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void dispose() {
     _tabCtrl.dispose();
     super.dispose();
-  }
-
-  void _onCategoryChanged(String cat) {
-    setState(() => _selectedCategory = cat);
-    ref
-        .read(feedProvider.notifier)
-        .refresh(category: cat == 'All' ? null : cat);
-    ref
-        .read(globalFeedProvider.notifier)
-        .refresh(category: cat == 'All' ? null : cat);
   }
 
   void _openPost(Post post) {
@@ -158,44 +146,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               ],
             ),
           ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: CategoryFilter(
-                selected: _selectedCategory,
-                onChanged: _onCategoryChanged,
-              ),
-            ),
-          ),
         ],
         body: TabBarView(
           controller: _tabCtrl,
           children: [
             // ── My Feed tab ────────────────────────────────────────────────
-            _AsyncPostList(
-              postsAsync: myFeedAsync,
+            _FeedList(
+              feedAsync: myFeedAsync,
               emptyMessage: 'Join communities and be the first to post!',
-              onRefresh: () => ref
-                  .read(feedProvider.notifier)
-                  .refresh(
-                    category: _selectedCategory == 'All'
-                        ? null
-                        : _selectedCategory,
-                  ),
+              onRefresh: () => ref.read(feedProvider.notifier).refresh(),
+              onLoadMore: () => ref.read(feedProvider.notifier).loadMore(),
               onUpvote: (id) => ref.read(feedProvider.notifier).toggleLike(id),
               onTap: _openPost,
             ),
             // ── Across India tab ───────────────────────────────────────────
-            _AsyncPostList(
-              postsAsync: globalAsync,
-              emptyMessage: 'No posts found across communities.',
-              onRefresh: () => ref
-                  .read(globalFeedProvider.notifier)
-                  .refresh(
-                    category: _selectedCategory == 'All'
-                        ? null
-                        : _selectedCategory,
-                  ),
+            _FeedList(
+              feedAsync: globalAsync,
+              emptyMessage: 'No trending posts right now. Check back soon!',
+              onRefresh: () => ref.read(globalFeedProvider.notifier).refresh(),
+              onLoadMore: () =>
+                  ref.read(globalFeedProvider.notifier).loadMore(),
               onUpvote: (id) =>
                   ref.read(globalFeedProvider.notifier).toggleLike(id),
               onTap: _openPost,
@@ -207,26 +177,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 }
 
-// ── Async post list ───────────────────────────────────────────────────────────
+// ── Feed list widget ──────────────────────────────────────────────────────────
 
-class _AsyncPostList extends StatelessWidget {
-  final AsyncValue<List<Post>> postsAsync;
+class _FeedList extends StatefulWidget {
+  final AsyncValue<FeedState> feedAsync;
   final String emptyMessage;
   final Future<void> Function() onRefresh;
+  final Future<void> Function() onLoadMore;
   final Future<void> Function(String id) onUpvote;
   final void Function(Post) onTap;
 
-  const _AsyncPostList({
-    required this.postsAsync,
+  const _FeedList({
+    required this.feedAsync,
     required this.emptyMessage,
     required this.onRefresh,
+    required this.onLoadMore,
     required this.onUpvote,
     required this.onTap,
   });
 
   @override
+  State<_FeedList> createState() => _FeedListState();
+}
+
+class _FeedListState extends State<_FeedList> {
+  final _scrollCtrl = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollCtrl.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.removeListener(_onScroll);
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollCtrl.position.pixels >=
+        _scrollCtrl.position.maxScrollExtent - 300) {
+      widget.onLoadMore();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return postsAsync.when(
+    return widget.feedAsync.when(
       loading: () => const SkeletonPostList(count: 4),
       error: (e, _) => Center(
         child: Padding(
@@ -250,7 +249,7 @@ class _AsyncPostList extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               TextButton.icon(
-                onPressed: onRefresh,
+                onPressed: widget.onRefresh,
                 icon: const Icon(Icons.refresh_rounded),
                 label: const Text('Retry'),
               ),
@@ -258,50 +257,79 @@ class _AsyncPostList extends StatelessWidget {
           ),
         ),
       ),
-      data: (posts) {
+      data: (feedState) {
+        final posts = feedState.posts;
         if (posts.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+          return RefreshIndicator(
+            color: AppTheme.primary,
+            onRefresh: widget.onRefresh,
+            child: ListView(
               children: [
-                Icon(
-                  Icons.forum_outlined,
-                  size: 64,
-                  color: AppTheme.textLight.withOpacity(0.4),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'No posts yet',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.textSecondary,
-                    fontSize: 16,
+                SizedBox(
+                  height: 400,
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.forum_outlined,
+                          size: 64,
+                          color: AppTheme.textLight.withOpacity(0.4),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'No posts yet',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.textSecondary,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          widget.emptyMessage,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: AppTheme.textLight),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  emptyMessage,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: AppTheme.textLight),
                 ),
               ],
             ),
           );
         }
+
         return RefreshIndicator(
           color: AppTheme.primary,
-          onRefresh: onRefresh,
+          onRefresh: widget.onRefresh,
           child: ListView.builder(
+            controller: _scrollCtrl,
             padding: const EdgeInsets.only(top: 4, bottom: 100),
-            itemCount: posts.length,
-            itemBuilder: (_, i) => PostCard(
-              post: posts[i],
-              onTap: () => onTap(posts[i]),
-              onUpvote: (id) async {
-                await onUpvote(id);
-                return posts[i];
-              },
-            ),
+            itemCount: posts.length + (feedState.isLoadingMore ? 1 : 0),
+            itemBuilder: (_, i) {
+              if (i == posts.length) {
+                // Load-more indicator at the bottom
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppTheme.primary,
+                    ),
+                  ),
+                );
+              }
+              final post = posts[i];
+              return PostCard(
+                post: post,
+                onTap: () => widget.onTap(post),
+                onUpvote: (id) async {
+                  await widget.onUpvote(id);
+                  return post;
+                },
+              );
+            },
           ),
         );
       },

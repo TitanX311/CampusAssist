@@ -39,6 +39,7 @@ class AuthLocalRepository {
         'email': user.email,
         'picture': user.pictureURL,
         'college': user.college,
+        'type': user.userType,
       }),
     );
   }
@@ -53,6 +54,7 @@ class AuthLocalRepository {
       ...map,
       'refresh_token': refreshToken,
       'access_token': prefs.getString(_accessKey) ?? '',
+      // 'type' is already in map from the saved profile above
     });
   }
 
