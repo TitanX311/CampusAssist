@@ -7,8 +7,10 @@ import '../theme/app_theme.dart';
 import '../widgets/post_card.dart';
 import '../widgets/category_filter.dart';
 import '../viewmodel/post_viewmodel.dart';
+import '../viewmodel/notification_viewmodel.dart';
 import '../widgets/skeleton_loaders.dart';
 import 'package:campusassist/screens/post_detail_screen.dart';
+import 'package:campusassist/screens/notifications_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -55,6 +57,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Widget build(BuildContext context) {
     final myFeedAsync = ref.watch(feedProvider);
     final globalAsync = ref.watch(globalFeedProvider);
+    final unread = ref.watch(unreadCountProvider);
 
     return Scaffold(
       backgroundColor: AppTheme.surface,
@@ -87,12 +90,46 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 ),
                 onPressed: () {},
               ),
-              IconButton(
-                icon: const Icon(
-                  Icons.notifications_outlined,
-                  color: AppTheme.textPrimary,
-                ),
-                onPressed: () {},
+              Stack(
+                children: [
+                  IconButton(
+                    icon: const Icon(
+                      Icons.notifications_outlined,
+                      color: AppTheme.textPrimary,
+                    ),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const NotificationsScreen(),
+                      ),
+                    ),
+                  ),
+                  if (unread > 0)
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: const BoxDecoration(
+                          color: AppTheme.error,
+                          shape: BoxShape.circle,
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 16,
+                          minHeight: 16,
+                        ),
+                        child: Text(
+                          unread > 99 ? '99+' : '$unread',
+                          style: const TextStyle(
+                            color: AppTheme.textOnPrimary,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ],
             bottom: TabBar(

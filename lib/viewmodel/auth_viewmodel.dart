@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:campusassist/models/user_model.dart';
 import 'package:campusassist/repositories/auth_remote_repository.dart';
+import 'package:campusassist/repositories/notification_repository.dart';
 import 'package:campusassist/repositories/profile_remote_repository.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -173,6 +174,9 @@ class AuthViewModel extends AsyncNotifier<UserModel?> {
   Future<void> signOut() async {
     final local = ref.read(authLocalRepositoryProvider);
     final remote = ref.read(authRemoteRepositoryProvider);
+
+    // Unregister FCM token before clearing auth
+    await ref.read(notificationRepositoryProvider).unregisterDeviceToken();
 
     final refreshToken = await local.getRefreshToken();
 
