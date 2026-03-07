@@ -39,32 +39,26 @@ class CollegeDetailRemoteRepository {
     }
   }
 
-  /// GET /api/college/{college_id}/communities
+  /// GET /api/community/college/{college_id}
+  /// Uses the community service to get communities belonging to a college.
   Future<List<Community>> getCollegeCommunities(
     String collegeId, {
     int page = 1,
     int pageSize = 20,
   }) async {
     try {
-      final response = await _dio.get<dynamic>(
-        '/college/$collegeId/communities',
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/community/college/$collegeId',
         queryParameters: {'page': page, 'page_size': pageSize},
       );
-      final data = response.data;
-      List<dynamic> raw;
-      if (data is List) {
-        raw = data;
-      } else if (data is Map) {
-        raw =
-            (data['items'] ??
-                    data['communities'] ??
-                    data['results'] ??
-                    data['data'] ??
-                    [])
-                as List<dynamic>;
-      } else {
-        raw = [];
-      }
+      final data = response.data!;
+      final raw =
+          (data['items'] ??
+                  data['communities'] ??
+                  data['results'] ??
+                  data['data'] ??
+                  [])
+              as List<dynamic>;
       return raw
           .map((e) => Community.fromMap(e as Map<String, dynamic>))
           .toList();

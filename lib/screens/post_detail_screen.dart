@@ -1,9 +1,12 @@
 // lib/screens/post_detail_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/post_model.dart';
 import '../repositories/post_remote_repository.dart';
 import '../theme/app_theme.dart';
+import '../viewmodel/post_viewmodel.dart';
+import '../widgets/skeleton_loaders.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'campus_map_screen.dart';
 
@@ -17,8 +20,6 @@ class PostDetailScreen extends ConsumerStatefulWidget {
 
 class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
   late Post _post;
-  List<Answer> _answers = [];
-  bool _loading = true;
   final _answerCtrl = TextEditingController();
   bool _submitting = false;
 
@@ -26,17 +27,12 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
   void initState() {
     super.initState();
     _post = widget.post;
-    _loadAnswers();
   }
 
-  Future<void> _loadAnswers() async {
-    // TODO: fetch via GET /api/posts/{id}/comments once endpoint is wired
-    if (mounted) {
-      setState(() {
-        _answers = [];
-        _loading = false;
-      });
-    }
+  @override
+  void dispose() {
+    _answerCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _upvotePost() async {
@@ -61,60 +57,61 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
     }
   }
 
-  Future<void> _upvoteAnswer(Answer a) async {
-    // Optimistic local toggle — no backend endpoint for answer upvotes yet
-    setState(() {
-      final idx = _answers.indexWhere((x) => x.id == a.id);
-      if (idx != -1) {
-        _answers[idx] = a.copyWith(
-          upvotes: a.hasUpvoted ? a.upvotes - 1 : a.upvotes + 1,
-          hasUpvoted: !a.hasUpvoted,
-        );
-      }
-    });
-  }
-
   Future<void> _submitAnswer() async {
     final text = _answerCtrl.text.trim();
     if (text.isEmpty) return;
     setState(() => _submitting = true);
-    final comment = await ref
-        .read(postRemoteRepositoryProvider)
-        .addComment(_post.id, text);
-    final ans = Answer(
-      id: comment.id,
-      postId: comment.postId,
-      body: comment.body,
-      authorAlias: comment.authorAlias,
-      createdAt: comment.createdAt,
-    );
-    _answerCtrl.clear();
-    setState(() {
-      _answers.insert(0, ans);
-      _submitting = false;
-      _post = Post(
-        id: _post.id,
-        content: _post.content,
-        attachments: _post.attachments,
-        authorAlias: _post.authorAlias,
+    try {
+      final key = commentsProvider(
+        postId: _post.id,
         communityId: _post.communityId,
-        collegeId: _post.collegeId,
-        collegeName: _post.collegeName,
-        category: _post.category,
-        upvotes: _post.upvotes,
-        hasUpvoted: _post.hasUpvoted,
-        answerCount: _post.answerCount + 1,
-        createdAt: _post.createdAt,
-        locationLabel: _post.locationLabel,
       );
-    });
-    FocusScope.of(context).unfocus();
+      await ref.read(key.notifier).addComment(text);
+      _answerCtrl.clear();
+      setState(
+        () => _post = _post.copyWith(answerCount: _post.answerCount + 1),
+      );
+      FocusScope.of(context).unfocus();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to post answer: $e'),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  void _openCampusMap() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CampusMapScreen(
+          collegeId: _post.collegeId,
+          collegeName: _post.collegeName,
+          locationLabel: _post.locationLabel,
+          postTitle: _post.content.length > 60
+              ? '${_post.content.substring(0, 60)}...'
+              : _post.content,
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final catColor = AppTheme.categoryColor(_post.category.label);
+    final commentsAsync = ref.watch(
+      commentsProvider(postId: _post.id, communityId: _post.communityId),
+    );
+
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor: AppTheme.surface,
       appBar: AppBar(
         title: Text(_post.category.label),
@@ -128,22 +125,24 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
       ),
       body: Column(
         children: [
+          // ── Scrollable body ────────────────────────────────────────────────
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Post card full
+                  // ── Full post card ─────────────────────────────────────────
                   Container(
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: AppTheme.cardBg,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: AppTheme.divider),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Category header strip
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 16,
@@ -167,6 +166,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                                 child: Row(
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(
                                       AppTheme.categoryIcon(
@@ -198,27 +198,78 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                             ],
                           ),
                         ),
+
+                        // Post body
                         Padding(
                           padding: const EdgeInsets.all(16),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                _post.content,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  color: AppTheme.textPrimary,
-                                  height: 1.5,
-                                ),
+                              // Markdown-rendered content
+                              MarkdownBody(
+                                data: _post.content,
+                                selectable: true,
+                                styleSheet:
+                                    MarkdownStyleSheet.fromTheme(
+                                      Theme.of(context),
+                                    ).copyWith(
+                                      p: const TextStyle(
+                                        fontSize: 14,
+                                        color: AppTheme.textPrimary,
+                                        height: 1.55,
+                                      ),
+                                      strong: const TextStyle(
+                                        fontSize: 14,
+                                        color: AppTheme.textPrimary,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                      em: const TextStyle(
+                                        fontSize: 14,
+                                        color: AppTheme.textPrimary,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                      code: TextStyle(
+                                        fontFamily: 'monospace',
+                                        fontSize: 12.5,
+                                        backgroundColor: AppTheme.surface,
+                                        color: AppTheme.primary,
+                                      ),
+                                      codeblockDecoration: BoxDecoration(
+                                        color: AppTheme.surface,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: AppTheme.divider,
+                                        ),
+                                      ),
+                                      blockquoteDecoration: BoxDecoration(
+                                        color: AppTheme.primary.withOpacity(
+                                          0.04,
+                                        ),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border(
+                                          left: BorderSide(
+                                            color: AppTheme.primary.withOpacity(
+                                              0.5,
+                                            ),
+                                            width: 3,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                               ),
+
+                              // Location banner
                               if (_post.locationLabel != null) ...[
                                 const SizedBox(height: 14),
                                 _CampusMapBanner(
                                   locationLabel: _post.locationLabel!,
-                                  onTap: () => _openCampusMap(),
+                                  onTap: _openCampusMap,
                                 ),
                               ],
+
                               const SizedBox(height: 14),
+
+                              // Author + upvote
                               Row(
                                 children: [
                                   const Icon(
@@ -234,15 +285,18 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                                       color: AppTheme.textLight,
                                     ),
                                   ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    '· ${_post.collegeName}',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: AppTheme.textLight,
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      '· ${_post.collegeName}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: AppTheme.textLight,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
-                                  const Spacer(),
+                                  const SizedBox(width: 8),
                                   GestureDetector(
                                     onTap: _upvotePost,
                                     child: AnimatedContainer(
@@ -265,12 +319,13 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                                         ),
                                       ),
                                       child: Row(
+                                        mainAxisSize: MainAxisSize.min,
                                         children: [
                                           Icon(
                                             Icons.arrow_upward_rounded,
                                             size: 15,
                                             color: _post.hasUpvoted
-                                                ? Colors.white
+                                                ? AppTheme.textOnPrimary
                                                 : AppTheme.textSecondary,
                                           ),
                                           const SizedBox(width: 5),
@@ -280,7 +335,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                                               fontWeight: FontWeight.w700,
                                               fontSize: 13,
                                               color: _post.hasUpvoted
-                                                  ? Colors.white
+                                                  ? AppTheme.textOnPrimary
                                                   : AppTheme.textSecondary,
                                             ),
                                           ),
@@ -290,7 +345,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                                             style: TextStyle(
                                               fontSize: 12,
                                               color: _post.hasUpvoted
-                                                  ? Colors.white
+                                                  ? AppTheme.textOnPrimary
                                                   : AppTheme.textSecondary,
                                             ),
                                           ),
@@ -306,73 +361,145 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                       ],
                     ),
                   ),
+
                   const SizedBox(height: 20),
-                  // Answers header
-                  Row(
-                    children: [
-                      Text(
-                        '${_post.answerCount} Answers',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.textPrimary,
+
+                  // ── Comments ───────────────────────────────────────────────
+                  commentsAsync.when(
+                    loading: () => Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${_post.answerCount} Answers',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.textPrimary,
+                          ),
                         ),
-                      ),
-                      const Spacer(),
-                      const Icon(
-                        Icons.sort_rounded,
-                        size: 16,
-                        color: AppTheme.textSecondary,
-                      ),
-                      const SizedBox(width: 4),
-                      const Text(
-                        'Top',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  if (_loading)
-                    const Center(child: CircularProgressIndicator())
-                  else if (_answers.isEmpty)
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(32),
-                        child: Column(
+                        const SizedBox(height: 16),
+                        const SkeletonCommentList(count: 3),
+                      ],
+                    ),
+                    error: (e, _) => Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
                           children: [
-                            Icon(
-                              Icons.chat_bubble_outline_rounded,
-                              size: 48,
-                              color: AppTheme.textLight.withOpacity(0.5),
+                            Text(
+                              '${_post.answerCount} Answers',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.textPrimary,
+                              ),
                             ),
-                            const SizedBox(height: 12),
-                            const Text(
-                              'Be the first to answer!',
-                              style: TextStyle(
-                                color: AppTheme.textSecondary,
-                                fontWeight: FontWeight.w500,
+                            const Spacer(),
+                            TextButton.icon(
+                              onPressed: () => ref
+                                  .read(
+                                    commentsProvider(
+                                      postId: _post.id,
+                                      communityId: _post.communityId,
+                                    ).notifier,
+                                  )
+                                  .refresh(),
+                              icon: const Icon(Icons.refresh_rounded, size: 14),
+                              label: const Text(
+                                'Retry',
+                                style: TextStyle(fontSize: 12),
                               ),
                             ),
                           ],
                         ),
-                      ),
-                    )
-                  else
-                    ..._answers.map(
-                      (a) => _AnswerCard(
-                        answer: a,
-                        onUpvote: () => _upvoteAnswer(a),
-                      ),
+                        const SizedBox(height: 8),
+                        Text(
+                          e.toString().replaceFirst('Exception: ', ''),
+                          style: const TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
                     ),
+                    data: (comments) => Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              '${comments.length} Answer${comments.length == 1 ? '' : 's'}',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.textPrimary,
+                              ),
+                            ),
+                            const Spacer(),
+                            const Icon(
+                              Icons.sort_rounded,
+                              size: 16,
+                              color: AppTheme.textSecondary,
+                            ),
+                            const SizedBox(width: 4),
+                            const Text(
+                              'Latest',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        if (comments.isEmpty)
+                          Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(32),
+                              child: Column(
+                                children: [
+                                  Icon(
+                                    Icons.chat_bubble_outline_rounded,
+                                    size: 48,
+                                    color: AppTheme.textLight.withOpacity(0.5),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  const Text(
+                                    'Be the first to answer!',
+                                    style: TextStyle(
+                                      color: AppTheme.textSecondary,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        else
+                          ...comments.map(
+                            (c) => _AnswerCard(
+                              comment: c,
+                              onDelete: () => ref
+                                  .read(
+                                    commentsProvider(
+                                      postId: _post.id,
+                                      communityId: _post.communityId,
+                                    ).notifier,
+                                  )
+                                  .deleteComment(c.id),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+
                   const SizedBox(height: 80),
                 ],
               ),
             ),
           ),
-          // Answer input bar
+
+          // ── Answer input bar ───────────────────────────────────────────────
           Container(
             padding: EdgeInsets.fromLTRB(
               16,
@@ -381,10 +508,13 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
               12 + MediaQuery.of(context).viewInsets.bottom,
             ),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: AppTheme.cardBg,
               border: const Border(top: BorderSide(color: AppTheme.divider)),
               boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8),
+                BoxShadow(
+                  color: AppTheme.textPrimary.withOpacity(0.05),
+                  blurRadius: 8,
+                ),
               ],
             ),
             child: Row(
@@ -394,7 +524,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                   backgroundColor: AppTheme.primaryLight,
                   child: Icon(
                     Icons.person_rounded,
-                    color: Colors.white,
+                    color: AppTheme.textOnPrimary,
                     size: 18,
                   ),
                 ),
@@ -403,7 +533,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                   child: TextField(
                     controller: _answerCtrl,
                     decoration: const InputDecoration(
-                      hintText: 'Write an answer...',
+                      hintText: 'Write an answer…',
                       contentPadding: EdgeInsets.symmetric(
                         horizontal: 14,
                         vertical: 10,
@@ -427,13 +557,13 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                         ? const Padding(
                             padding: EdgeInsets.all(10),
                             child: CircularProgressIndicator(
-                              color: Colors.white,
+                              color: AppTheme.textOnPrimary,
                               strokeWidth: 2,
                             ),
                           )
                         : const Icon(
                             Icons.send_rounded,
-                            color: Colors.white,
+                            color: AppTheme.textOnPrimary,
                             size: 18,
                           ),
                   ),
@@ -445,28 +575,15 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
       ),
     );
   }
-
-  void _openCampusMap() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => CampusMapScreen(
-          collegeId: _post.collegeId,
-          collegeName: _post.collegeName,
-          locationLabel: _post.locationLabel,
-          postTitle: _post.content.length > 60
-              ? '${_post.content.substring(0, 60)}...'
-              : _post.content,
-        ),
-      ),
-    );
-  }
 }
 
+// ── Answer Card ────────────────────────────────────────────────────────────────
+
 class _AnswerCard extends StatelessWidget {
-  final Answer answer;
-  final VoidCallback onUpvote;
-  const _AnswerCard({required this.answer, required this.onUpvote});
+  final Comment comment;
+  final Future<void> Function() onDelete;
+
+  const _AnswerCard({required this.comment, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -474,20 +591,30 @@ class _AnswerCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardBg,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppTheme.divider),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            answer.body,
-            style: const TextStyle(
-              fontSize: 13.5,
-              color: AppTheme.textPrimary,
-              height: 1.5,
-            ),
+          MarkdownBody(
+            data: comment.body,
+            selectable: true,
+            styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context))
+                .copyWith(
+                  p: const TextStyle(
+                    fontSize: 13.5,
+                    color: AppTheme.textPrimary,
+                    height: 1.5,
+                  ),
+                  code: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    backgroundColor: AppTheme.surface,
+                    color: AppTheme.primary,
+                  ),
+                ),
           ),
           const SizedBox(height: 10),
           Row(
@@ -499,56 +626,21 @@ class _AnswerCard extends StatelessWidget {
               ),
               const SizedBox(width: 4),
               Text(
-                '@${answer.authorAlias}',
+                '@${comment.authorAlias}',
                 style: const TextStyle(fontSize: 11, color: AppTheme.textLight),
               ),
               const SizedBox(width: 6),
               Text(
-                '· ${timeago.format(answer.createdAt)}',
+                '· ${timeago.format(comment.createdAt)}',
                 style: const TextStyle(fontSize: 11, color: AppTheme.textLight),
               ),
               const Spacer(),
               GestureDetector(
-                onTap: onUpvote,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: answer.hasUpvoted
-                        ? AppTheme.primary.withOpacity(0.1)
-                        : AppTheme.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: answer.hasUpvoted
-                          ? AppTheme.primary
-                          : AppTheme.divider,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.arrow_upward_rounded,
-                        size: 13,
-                        color: answer.hasUpvoted
-                            ? AppTheme.primary
-                            : AppTheme.textLight,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${answer.upvotes}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: answer.hasUpvoted
-                              ? AppTheme.primary
-                              : AppTheme.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
+                onTap: onDelete,
+                child: const Icon(
+                  Icons.delete_outline_rounded,
+                  size: 16,
+                  color: AppTheme.textLight,
                 ),
               ),
             ],
@@ -559,7 +651,8 @@ class _AnswerCard extends StatelessWidget {
   }
 }
 
-// ── Campus Map Banner widget (used in post detail) ───────────────────────────
+// ── Campus Map Banner ──────────────────────────────────────────────────────────
+
 class _CampusMapBanner extends StatelessWidget {
   final String locationLabel;
   final VoidCallback onTap;
@@ -641,7 +734,7 @@ class _CampusMapBanner extends StatelessWidget {
               child: const Icon(
                 Icons.arrow_forward_ios_rounded,
                 size: 12,
-                color: Colors.white,
+                color: AppTheme.textOnPrimary,
               ),
             ),
           ],

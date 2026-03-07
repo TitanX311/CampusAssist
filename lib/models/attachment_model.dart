@@ -2,38 +2,54 @@
 
 class Attachment {
   final String id;
+  final String uploaderUserId;
   final String filename;
-  final String mimeType;
+  final String contentType; // MIME type (e.g. 'image/jpeg')
   final int size; // bytes
-  final String? url; // pre-signed or direct download URL, if returned by API
-  final DateTime uploadedAt;
+  final String bucket;
+  final String objectKey;
+  final DateTime createdAt;
 
   const Attachment({
     required this.id,
+    this.uploaderUserId = '',
     required this.filename,
-    required this.mimeType,
+    required this.contentType,
     required this.size,
-    this.url,
-    required this.uploadedAt,
+    this.bucket = '',
+    this.objectKey = '',
+    required this.createdAt,
   });
+
+  /// Convenience getter for backward compatibility
+  String get mimeType => contentType;
 
   factory Attachment.fromJson(Map<String, dynamic> json) => Attachment(
     id: json['id'] as String,
+    uploaderUserId: json['uploader_user_id'] as String? ?? '',
     filename: json['filename'] as String? ?? '',
-    mimeType: json['mime_type'] as String? ?? 'application/octet-stream',
+    contentType:
+        json['content_type'] as String? ??
+        json['mime_type'] as String? ??
+        'application/octet-stream',
     size: json['size'] as int? ?? 0,
-    url: json['url'] as String?,
-    uploadedAt: DateTime.parse(
-      json['uploaded_at'] as String? ?? DateTime.now().toIso8601String(),
+    bucket: json['bucket'] as String? ?? '',
+    objectKey: json['object_key'] as String? ?? '',
+    createdAt: DateTime.parse(
+      json['created_at'] as String? ??
+          json['uploaded_at'] as String? ??
+          DateTime.now().toIso8601String(),
     ),
   );
 
   Map<String, dynamic> toJson() => {
     'id': id,
+    'uploader_user_id': uploaderUserId,
     'filename': filename,
-    'mime_type': mimeType,
+    'content_type': contentType,
     'size': size,
-    'url': url,
-    'uploaded_at': uploadedAt.toIso8601String(),
+    'bucket': bucket,
+    'object_key': objectKey,
+    'created_at': createdAt.toIso8601String(),
   };
 }

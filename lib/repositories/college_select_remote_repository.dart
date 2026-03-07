@@ -30,15 +30,13 @@ class CollegeSelectRemoteRepository {
   Future<List<CollegeModel>> searchColleges(String query) async {
     try {
       debugPrint(
-        '[CollegeSelectRepo] GET /api/college query="$query" page=1 page_size=20',
+        '[CollegeSelectRepo] GET /api/college query="$query" page=1 page_size=50',
       );
+      // The college service only supports pagination — no free-text query param.
+      // Fetch up to 50 records and filter client-side when a query is provided.
       final response = await _dio.get<Map<String, dynamic>>(
         '/college',
-        queryParameters: {
-          if (query.trim().isNotEmpty) 'query': query.trim(),
-          'page': 1,
-          'page_size': 20,
-        },
+        queryParameters: {'page': 1, 'page_size': 50},
       );
       debugPrint('[CollegeSelectRepo] response: ${response.data}');
       final data = response.data!;
@@ -49,10 +47,15 @@ class CollegeSelectRemoteRepository {
                   data['data'] ??
                   [])
               as List<dynamic>;
-      debugPrint('[CollegeSelectRepo] parsed ${results.length} colleges');
-      return results
+      final all = results
           .map((e) => CollegeModel.fromMap(e as Map<String, dynamic>))
           .toList();
+
+      if (query.trim().isEmpty) return all;
+
+      // Client-side filter
+      final lowerQ = query.trim().toLowerCase();
+      return all.where((c) => c.name.toLowerCase().contains(lowerQ)).toList();
     } on DioException catch (e) {
       debugPrint('[CollegeSelectRepo] DioException: ${e.type} ${e.message}');
       throw _mapDioError(e);

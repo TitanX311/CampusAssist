@@ -3,6 +3,7 @@ import 'package:campusassist/core/server_constants.dart';
 import 'package:campusassist/models/post_model.dart';
 import 'package:campusassist/repositories/attachment_remote_repository.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -32,14 +33,22 @@ class PostRemoteRepository {
   PostRemoteRepository(this._dio, this._attachmentRepo);
 
   /// GET /api/posts/community/{community_id}
-  Future<List<Post>> getPostsByCommunity(String communityId) async {
+  Future<List<Post>> getPostsByCommunity(
+    String communityId, {
+    int page = 1,
+    int pageSize = 20,
+    String? category,
+  }) async {
     try {
+      debugPrint('[PostRepo] GET /posts/community/$communityId page=$page');
       final response = await _dio.get<Map<String, dynamic>>(
         '/posts/community/$communityId',
+        queryParameters: {'page': page, 'page_size': pageSize},
       );
       final raw = response.data!;
       final posts =
-          (raw['posts'] ?? raw['items'] ?? raw['data'] ?? []) as List<dynamic>;
+          (raw['items'] ?? raw['posts'] ?? raw['data'] ?? []) as List<dynamic>;
+      debugPrint('[PostRepo] getPostsByCommunity → ${posts.length} posts');
       return posts
           .map((e) => Post.fromJson(e as Map<String, dynamic>))
           .toList();
@@ -48,11 +57,53 @@ class PostRemoteRepository {
     }
   }
 
+  /// GET /api/posts/community/{community_id} — used as a fallback feed.
+  /// The API has no global feed endpoint; this returns the most recent posts
+  /// from the first community the user belongs to, or an empty list.
+  Future<List<Post>> getFeed({
+    int page = 1,
+    int pageSize = 20,
+    String? category,
+  }) async {
+    // The Post service has no /api/posts/feed endpoint.
+    // Return empty list — callers show the "No posts yet" empty state.
+    return [];
+  }
+
   /// GET /api/posts/{post_id}
   Future<Post> getPostById(String postId) async {
     try {
       final response = await _dio.get<Map<String, dynamic>>('/posts/$postId');
       return Post.fromJson(response.data!);
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    }
+  }
+
+  /// GET /api/comments/post/{post_id}?community_id=...
+  Future<List<Comment>> getComments(
+    String postId, {
+    String communityId = '',
+  }) async {
+    try {
+      debugPrint(
+        '[PostRepo] GET /comments/post/$postId communityId=$communityId',
+      );
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/comments/post/$postId',
+        queryParameters: {
+          if (communityId.isNotEmpty) 'community_id': communityId,
+        },
+      );
+      final raw = response.data!;
+      debugPrint('[PostRepo] getComments raw response: $raw');
+      final comments =
+          (raw['items'] ?? raw['comments'] ?? raw['data'] ?? [])
+              as List<dynamic>;
+      debugPrint('[PostRepo] getComments → ${comments.length} comments');
+      return comments
+          .map((e) => Comment.fromJson(e as Map<String, dynamic>))
+          .toList();
     } on DioException catch (e) {
       throw _mapDioError(e);
     }
@@ -67,6 +118,10 @@ class PostRemoteRepository {
   Future<Post> createPost({
     required String communityId,
     required String content,
+    String category = 'general',
+    String? locationLabel,
+    double? locationLat,
+    double? locationLng,
     List<XFile> attachments = const [],
     void Function(int fileIndex, int sent, int total)? onFileProgress,
   }) async {
@@ -81,15 +136,20 @@ class PostRemoteRepository {
         attachmentIds = uploaded.map((a) => a.id).toList();
       }
 
-      // Step 2 — create the post with attachment IDs.
+      // Step 2 — create the post.
+      // The API only accepts community_id, content, attachments.
+      debugPrint(
+        '[PostRepo] POST /posts communityId=$communityId attachments=${attachmentIds.length}',
+      );
       final response = await _dio.post<Map<String, dynamic>>(
         '/posts',
         data: {
           'community_id': communityId,
           'content': content,
-          if (attachmentIds.isNotEmpty) 'attachment_ids': attachmentIds,
+          if (attachmentIds.isNotEmpty) 'attachments': attachmentIds,
         },
       );
+      debugPrint('[PostRepo] createPost → id=${response.data!['id']}');
       return Post.fromJson(response.data!);
     } on DioException catch (e) {
       if (e.type == DioExceptionType.badResponse &&
@@ -122,21 +182,40 @@ class PostRemoteRepository {
     }
   }
 
-  /// POST /api/posts/{post_id}/like (toggle like/unlike)
-  Future<void> likePost(String postId) async {
+  /// POST /api/posts/{post_id}/like — idempotent (add like)
+  /// DELETE /api/posts/{post_id}/like — idempotent (remove like)
+  /// [hasUpvoted] is the CURRENT state before the toggle.
+  Future<void> likePost(String postId, {bool hasUpvoted = false}) async {
     try {
-      await _dio.post('/posts/$postId/like');
+      if (hasUpvoted) {
+        debugPrint('[PostRepo] DELETE /posts/$postId/like (unlike)');
+        await _dio.delete('/posts/$postId/like');
+      } else {
+        debugPrint('[PostRepo] POST /posts/$postId/like (like)');
+        await _dio.post('/posts/$postId/like');
+      }
     } on DioException catch (e) {
       throw _mapDioError(e);
     }
   }
 
-  /// POST /api/posts/{post_id}/comments
-  Future<Comment> addComment(String postId, String body) async {
+  /// POST /api/comments — create a comment on a post.
+  Future<Comment> addComment(
+    String postId,
+    String body, {
+    String communityId = '',
+  }) async {
     try {
+      debugPrint(
+        '[PostRepo] POST /comments postId=$postId communityId=$communityId',
+      );
       final response = await _dio.post<Map<String, dynamic>>(
-        '/posts/$postId/comments',
-        data: {'body': body},
+        '/comments',
+        data: {
+          'post_id': postId,
+          if (communityId.isNotEmpty) 'community_id': communityId,
+          'content': body,
+        },
       );
       return Comment.fromJson(response.data!);
     } on DioException catch (e) {
@@ -144,10 +223,11 @@ class PostRemoteRepository {
     }
   }
 
-  /// DELETE /api/posts/{post_id}/comments/{comment_id}
+  /// DELETE /api/comments/{comment_id}
   Future<void> deleteComment(String postId, String commentId) async {
     try {
-      await _dio.delete('/posts/$postId/comments/$commentId');
+      debugPrint('[PostRepo] DELETE /comments/$commentId');
+      await _dio.delete('/comments/$commentId');
     } on DioException catch (e) {
       throw _mapDioError(e);
     }

@@ -90,7 +90,7 @@ class UserStatsNotifier extends AsyncNotifier<UserStats> {
   }
 }
 
-// ─── PATCH /api/users/me ───────────────────────────────────────────────────────
+// ─── PATCH /api/auth/me ────────────────────────────────────────────────────────
 
 final profileEditProvider =
     AsyncNotifierProvider<ProfileEditNotifier, UserModel?>(
@@ -103,11 +103,11 @@ class ProfileEditNotifier extends AsyncNotifier<UserModel?> {
     return ref.watch(authViewModelProvider).value;
   }
 
-  Future<void> updateProfile({String? name, String? college}) async {
+  Future<void> updateProfile({String? name, String? picture}) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
       final repo = ref.read(profileRemoteRepositoryProvider);
-      final updated = await repo.updateProfile(name: name, college: college);
+      final updated = await repo.updateProfile(name: name, picture: picture);
 
       final local = ref.read(authLocalRepositoryProvider);
       final accessToken = updated.accessToken.isNotEmpty

@@ -26,10 +26,9 @@ class CommunityViewModel extends AsyncNotifier<List<Community>> {
     state = AsyncValue.data(fresh);
   }
 
-  /// Join a community. Returns the updated [Community] so callers can check
-  /// whether the user landed in [member_users] (joined) or [requested_users]
-  /// (pending approval for a private community).
-  Future<Community> joinCommunity(String communityId) async {
+  /// Join a community. Returns a [JoinResult] so callers can check
+  /// whether the user joined immediately or is pending approval.
+  Future<JoinResult> joinCommunity(String communityId) async {
     final result = await _repository.joinCommunity(communityId);
     await fetchMyCommunities();
     return result;
@@ -45,8 +44,13 @@ class CommunityViewModel extends AsyncNotifier<List<Community>> {
   Future<void> createCommunity({
     required String name,
     required String type,
+    List<String>? parentColleges,
   }) async {
-    await _repository.createCommunity(name: name, type: type);
+    await _repository.createCommunity(
+      name: name,
+      type: type,
+      parentColleges: parentColleges,
+    );
     await fetchMyCommunities();
   }
 

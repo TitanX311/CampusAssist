@@ -24,6 +24,17 @@ final communityRemoteRepositoryProvider = Provider<CommunityRemoteRepository>((
   return CommunityRemoteRepository(ref.watch(communityDioProvider));
 });
 
+class JoinResult {
+  final String communityId;
+  final String status; // 'joined' | 'requested'
+  final String message;
+  const JoinResult({
+    required this.communityId,
+    required this.status,
+    required this.message,
+  });
+}
+
 class CommunityRemoteRepository {
   final Dio _dio;
 
@@ -37,7 +48,7 @@ class CommunityRemoteRepository {
       );
       final data = response.data!;
       final raw =
-          (data['communities'] ?? data['items'] ?? data['data'] ?? [])
+          (data['items'] ?? data['communities'] ?? data['data'] ?? [])
               as List<dynamic>?;
       return (raw ?? [])
           .map((e) => Community.fromMap(e as Map<String, dynamic>))
@@ -59,13 +70,42 @@ class CommunityRemoteRepository {
     }
   }
 
+  /// GET /api/community/college/{college_id}
+  Future<List<Community>> getCollegeCommunities(
+    String collegeId, {
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/community/college/$collegeId',
+        queryParameters: {'page': page, 'page_size': pageSize},
+      );
+      final data = response.data!;
+      final raw =
+          (data['items'] ?? data['communities'] ?? data['data'] ?? [])
+              as List<dynamic>;
+      return raw
+          .map((e) => Community.fromMap(e as Map<String, dynamic>))
+          .toList();
+    } on DioException catch (e) {
+      throw _mapDioError(e);
+    }
+  }
+
   /// POST /api/community/{community_id}/join
-  Future<Community> joinCommunity(String communityId) async {
+  /// Returns a [JoinResult] indicating whether the user joined or is pending.
+  Future<JoinResult> joinCommunity(String communityId) async {
     try {
       final response = await _dio.post<Map<String, dynamic>>(
         '/community/$communityId/join',
       );
-      return Community.fromMap(response.data!);
+      final data = response.data!;
+      return JoinResult(
+        communityId: data['community_id'] as String? ?? communityId,
+        status: data['status'] as String? ?? 'joined',
+        message: data['message'] as String? ?? '',
+      );
     } on DioException catch (e) {
       throw _mapDioError(e);
     }
@@ -84,11 +124,17 @@ class CommunityRemoteRepository {
   Future<Community> createCommunity({
     required String name,
     required String type,
+    List<String>? parentColleges,
   }) async {
     try {
       final response = await _dio.post<Map<String, dynamic>>(
         '/community',
-        data: {'name': name, 'type': type},
+        data: {
+          'name': name,
+          'type': type,
+          if (parentColleges != null && parentColleges.isNotEmpty)
+            'parent_colleges': parentColleges,
+        },
       );
       return Community.fromMap(response.data!);
     } on DioException catch (e) {

@@ -452,14 +452,13 @@ class _CommunityTileState extends ConsumerState<_CommunityTile> {
     if (_loading || _joinResult != null) return;
     setState(() => _loading = true);
     try {
-      final community = await ref
+      final result = await ref
           .read(communityViewModelProvider.notifier)
           .joinCommunity(widget.community.id);
 
       if (mounted) {
-        // For PUBLIC communities the join is instant; for PRIVATE it creates a request.
-        final isPrivateCommunity = community.type == 'PRIVATE';
-        if (!isPrivateCommunity) {
+        // status='joined' = instant join (PUBLIC); status='requested' = pending (PRIVATE)
+        if (result.status == 'joined') {
           setState(() => _joinResult = true);
           widget.onJoined();
           ScaffoldMessenger.of(context).showSnackBar(
@@ -571,7 +570,7 @@ class _CommunityTileState extends ConsumerState<_CommunityTile> {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      '${widget.community.member_users.length} members',
+                      '${widget.community.memberCount} member${widget.community.memberCount == 1 ? '' : 's'}',
                       style: const TextStyle(
                         fontSize: 11.5,
                         color: AppTheme.textSecondary,

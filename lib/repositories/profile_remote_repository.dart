@@ -48,19 +48,19 @@ class ProfileRemoteRepository {
 
   ProfileRemoteRepository(this._dio);
 
-  // ── GET /api/users/me ──────────────────────────────────────────────────────
+  // ── GET /api/auth/me ───────────────────────────────────────────────────────
 
   /// Fetches the authenticated user's profile from the server.
   /// Tokens are preserved from the local cache by the caller.
   Future<UserModel> getMe() async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>('/users/me');
+      final response = await _dio.get<Map<String, dynamic>>('/auth/me');
       final data = response.data!;
       // Response may be the user object directly or nested under 'user'
       final userMap = (data['user'] as Map<String, dynamic>?) ?? data;
       return UserModel.fromResponse({
         ...userMap,
-        // Tokens are not returned by GET /users/me — keep empty so callers
+        // Tokens are not returned by GET /auth/me — keep empty so callers
         // preserve the existing ones.
         'access_token': '',
         'refresh_token': '',
@@ -70,37 +70,19 @@ class ProfileRemoteRepository {
     }
   }
 
-  // ── PATCH /api/users/me ────────────────────────────────────────────────────
+  // ── PATCH /api/auth/me ─────────────────────────────────────────────────────
 
-  /// Updates the authenticated user's profile (name, college, etc.)
+  /// Updates the authenticated user's profile (name, picture).
   /// Returns the updated [UserModel] without tokens (caller preserves them).
-  Future<UserModel> updateProfile({String? name, String? college}) async {
+  Future<UserModel> updateProfile({String? name, String? picture}) async {
     try {
       final response = await _dio.patch<Map<String, dynamic>>(
-        '/users/me',
+        '/auth/me',
         data: {
           if (name != null) 'name': name,
-          if (college != null) 'college': college,
+          if (picture != null) 'picture': picture,
         },
       );
-      final data = response.data!;
-      final userMap = (data['user'] as Map<String, dynamic>?) ?? data;
-      return UserModel.fromResponse({
-        ...userMap,
-        'access_token': data['access_token'] ?? '',
-        'refresh_token': data['refresh_token'] ?? '',
-      });
-    } on DioException catch (e) {
-      throw _mapDioError(e);
-    }
-  }
-
-  // ── GET /api/users/{user_id} ───────────────────────────────────────────────
-
-  /// Fetches any user's public profile by their ID.
-  Future<UserModel> getUserById(String userId) async {
-    try {
-      final response = await _dio.get<Map<String, dynamic>>('/users/$userId');
       final data = response.data!;
       final userMap = (data['user'] as Map<String, dynamic>?) ?? data;
       return UserModel.fromResponse({
@@ -113,24 +95,38 @@ class ProfileRemoteRepository {
     }
   }
 
-  // ── GET /api/users/me/stats ────────────────────────────────────────────────
+  // ── GET /api/auth/admin/users/{user_id} ────────────────────────────────────
 
-  /// GET /api/users/me/stats
-  Future<UserStats> getMyStats() async {
+  /// Fetches any user's public profile by their ID (admin endpoint).
+  Future<UserModel> getUserById(String userId) async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>('/users/me/stats');
-      return UserStats.fromJson(response.data!);
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/auth/admin/users/$userId',
+      );
+      final data = response.data!;
+      final userMap = (data['user'] as Map<String, dynamic>?) ?? data;
+      return UserModel.fromResponse({
+        ...userMap,
+        'access_token': '',
+        'refresh_token': '',
+      });
     } on DioException catch (e) {
-      if (e.response?.statusCode == 404) return const UserStats();
       throw _mapDioError(e);
-    } catch (_) {
-      return const UserStats();
     }
   }
 
-  // ── POST /api/users/me/avatar ──────────────────────────────────────────────
+  // ── Stats (not in API spec — returns empty placeholder) ───────────────────
 
-  /// POST /api/users/me/avatar — uploads profile picture
+  Future<UserStats> getMyStats() async {
+    // The backend does not expose a user-stats endpoint.
+    // Return zeroed stats — callers degrade gracefully.
+    return const UserStats();
+  }
+
+  // ── POST /api/attachments/upload for avatar ────────────────────────────────
+
+  /// Uploads profile picture via the attachments service, then updates the
+  /// profile with the returned download URL.
   Future<String> uploadAvatar(XFile file) async {
     final bytes = await file.readAsBytes();
     final filename = file.name.isNotEmpty ? file.name : 'avatar.jpg';
@@ -140,16 +136,25 @@ class ProfileRemoteRepository {
     });
 
     final response = await _dio.post<Map<String, dynamic>>(
-      '/users/me/avatar',
+      '/attachments/upload',
       data: formData,
     );
 
-    final url =
-        response.data!['url'] as String? ??
-        response.data!['picture'] as String? ??
-        response.data!['picture_url'] as String? ??
-        '';
-    return url;
+    // AttachmentResponse has no 'url' field — build the download URL from the id
+    final attachmentId = response.data!['id'] as String? ?? '';
+    if (attachmentId.isEmpty) return '';
+
+    final downloadUrl =
+        '${ServerConstants.baseURL}/attachments/$attachmentId/download';
+
+    // Update the user's picture field with the download URL
+    try {
+      await updateProfile(picture: downloadUrl);
+    } catch (_) {
+      // Non-fatal if the profile update fails
+    }
+
+    return downloadUrl;
   }
 
   Exception _mapDioError(DioException e) {

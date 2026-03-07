@@ -138,13 +138,13 @@ class AuthViewModel extends AsyncNotifier<UserModel?> {
     return result.value;
   }
 
-  Future<void> updateProfile({String? name, String? college}) async {
+  Future<void> updateProfile({String? name, String? picture}) async {
     final local = ref.read(authLocalRepositoryProvider);
 
     final result = await AsyncValue.guard(() async {
       final updated = await ref
           .read(profileRemoteRepositoryProvider)
-          .updateProfile(name: name, college: college);
+          .updateProfile(name: name, picture: picture);
 
       // Preserve existing tokens if the server didn't return new ones
       final accessToken = updated.accessToken.isNotEmpty

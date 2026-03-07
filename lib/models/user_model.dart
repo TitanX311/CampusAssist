@@ -6,6 +6,8 @@ class UserModel {
   final String email;
   final String? pictureURL;
   final String? college;
+  final bool emailVerified;
+  final String userType; // 'USER' | 'COLLEGE' | 'SUPER_ADMIN'
   final String refreshToken;
   final String accessToken;
 
@@ -16,6 +18,8 @@ class UserModel {
       email: map['email'] ?? '',
       pictureURL: map['picture'],
       college: map['college'],
+      emailVerified: map['email_verified'] as bool? ?? false,
+      userType: map['type'] as String? ?? 'USER',
       refreshToken: map['refresh_token'] ?? '',
       accessToken: map['access_token'] ?? '',
     );
@@ -28,6 +32,8 @@ class UserModel {
     required this.email,
     this.pictureURL,
     this.college,
+    this.emailVerified = false,
+    this.userType = 'USER',
     required this.refreshToken,
     required this.accessToken,
   });
@@ -42,6 +48,8 @@ class UserModel {
           email == other.email &&
           pictureURL == other.pictureURL &&
           college == other.college &&
+          emailVerified == other.emailVerified &&
+          userType == other.userType &&
           refreshToken == other.refreshToken &&
           accessToken == other.accessToken);
 
@@ -52,19 +60,23 @@ class UserModel {
       email.hashCode ^
       pictureURL.hashCode ^
       college.hashCode ^
+      emailVerified.hashCode ^
+      userType.hashCode ^
       refreshToken.hashCode ^
       accessToken.hashCode;
 
   @override
   String toString() {
-    return 'UserModel{' +
-        ' id: $id,' +
-        ' name: $name,' +
-        ' email: $email,' +
-        ' pictureURL: $pictureURL,' +
-        ' college: $college,' +
-        ' refreshToken: $refreshToken,' +
-        ' accessToken: $accessToken,' +
+    return 'UserModel{'
+        ' id: $id,'
+        ' name: $name,'
+        ' email: $email,'
+        ' pictureURL: $pictureURL,'
+        ' college: $college,'
+        ' emailVerified: $emailVerified,'
+        ' userType: $userType,'
+        ' refreshToken: $refreshToken,'
+        ' accessToken: $accessToken,'
         '}';
   }
 
@@ -74,6 +86,8 @@ class UserModel {
     String? email,
     String? pictureURL,
     String? college,
+    bool? emailVerified,
+    String? userType,
     String? refreshToken,
     String? accessToken,
   }) {
@@ -83,6 +97,8 @@ class UserModel {
       email: email ?? this.email,
       pictureURL: pictureURL ?? this.pictureURL,
       college: college ?? this.college,
+      emailVerified: emailVerified ?? this.emailVerified,
+      userType: userType ?? this.userType,
       refreshToken: refreshToken ?? this.refreshToken,
       accessToken: accessToken ?? this.accessToken,
     );
@@ -90,25 +106,29 @@ class UserModel {
 
   Map<String, dynamic> toMap() {
     return {
-      'id': this.id,
-      'name': this.name,
-      'email': this.email,
-      'pictureURL': this.pictureURL,
-      'college': this.college,
-      'refreshToken': this.refreshToken,
-      'accessToken': this.accessToken,
+      'id': id,
+      'name': name,
+      'email': email,
+      'pictureURL': pictureURL,
+      'college': college,
+      'emailVerified': emailVerified,
+      'userType': userType,
+      'refreshToken': refreshToken,
+      'accessToken': accessToken,
     };
   }
 
   factory UserModel.fromMap(Map<String, dynamic> map) {
     return UserModel(
       id: map['id'] as String,
-      name: map['name'] as String,
+      name: map['name'] as String? ?? '',
       email: map['email'] as String,
       pictureURL: map['pictureURL'] as String?,
       college: map['college'] as String?,
-      refreshToken: map['refreshToken'] as String,
-      accessToken: map['accessToken'] as String,
+      emailVerified: map['emailVerified'] as bool? ?? false,
+      userType: map['userType'] as String? ?? 'USER',
+      refreshToken: map['refreshToken'] as String? ?? '',
+      accessToken: map['accessToken'] as String? ?? '',
     );
   }
 

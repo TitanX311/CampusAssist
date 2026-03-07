@@ -1,14 +1,14 @@
 // lib/screens/home_screen.dart
 import 'package:campusassist/widgets/app_logo_icon.dart';
-import 'package:campusassist/core/providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/post_model.dart';
-import '../repositories/post_remote_repository.dart';
 import '../theme/app_theme.dart';
 import '../widgets/post_card.dart';
 import '../widgets/category_filter.dart';
-import 'post_detail_screen.dart';
+import '../viewmodel/post_viewmodel.dart';
+import '../widgets/skeleton_loaders.dart';
+import 'package:campusassist/screens/post_detail_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -21,70 +21,41 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabCtrl;
   String _selectedCategory = 'All';
-  List<Post> _myCollegePosts = [];
-  List<Post> _indiaPosts = [];
-  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
     _tabCtrl = TabController(length: 2, vsync: this);
-    _tabCtrl.addListener(() => setState(() {}));
-    _load();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
-    // TODO: replace with real API calls once college-scoped and India-wide
-    // post endpoints are available (e.g. GET /api/posts?college=... and
-    // GET /api/posts?scope=india).
-    if (mounted) {
-      setState(() {
-        _myCollegePosts = [];
-        _indiaPosts = [];
-        _loading = false;
-      });
-    }
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    super.dispose();
   }
 
   void _onCategoryChanged(String cat) {
     setState(() => _selectedCategory = cat);
-    _load();
-  }
-
-  Future<Post> _upvotePost(String id) async {
-    Post? toggled;
-    setState(() {
-      Post _toggle(Post p) {
-        final t = p.copyWith(
-          upvotes: p.hasUpvoted ? p.upvotes - 1 : p.upvotes + 1,
-          hasUpvoted: !p.hasUpvoted,
-        );
-        toggled = t;
-        return t;
-      }
-
-      _myCollegePosts = _myCollegePosts
-          .map((p) => p.id == id ? _toggle(p) : p)
-          .toList();
-      _indiaPosts = _indiaPosts
-          .map((p) => p.id == id ? _toggle(p) : p)
-          .toList();
-    });
-    ref.read(postRemoteRepositoryProvider).likePost(id).ignore();
-    return toggled!;
+    ref
+        .read(feedProvider.notifier)
+        .refresh(category: cat == 'All' ? null : cat);
+    ref
+        .read(globalFeedProvider.notifier)
+        .refresh(category: cat == 'All' ? null : cat);
   }
 
   void _openPost(Post post) {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => PostDetailScreen(post: post)),
-    ).then((_) => _load());
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final college = ref.watch(selectedCollegeProvider);
+    final myFeedAsync = ref.watch(feedProvider);
+    final globalAsync = ref.watch(globalFeedProvider);
+
     return Scaffold(
       backgroundColor: AppTheme.surface,
       body: NestedScrollView(
@@ -92,7 +63,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           SliverAppBar(
             floating: true,
             snap: true,
-            backgroundColor: Colors.white,
+            backgroundColor: AppTheme.cardBg,
             elevation: 0,
             title: Row(
               children: [
@@ -126,32 +97,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             ],
             bottom: TabBar(
               controller: _tabCtrl,
-              tabs: [
+              tabs: const [
                 Tab(
-                  child: Column(
+                  child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.home_rounded, size: 16),
-                          SizedBox(width: 6),
-                          Text('My College'),
-                        ],
-                      ),
-                      if (college != null)
-                        Text(
-                          college.name,
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w400,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                      Icon(Icons.home_rounded, size: 16),
+                      SizedBox(width: 6),
+                      Text('My Feed'),
                     ],
                   ),
                 ),
-                const Tab(
+                Tab(
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -177,20 +134,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         body: TabBarView(
           controller: _tabCtrl,
           children: [
-            (college == null || college.id.isEmpty)
-                ? const _NoCollegeView()
-                : _PostList(
-                    posts: _myCollegePosts,
-                    loading: _loading,
-                    showCollege: false,
-                    onUpvote: _upvotePost,
-                    onTap: _openPost,
+            // ── My Feed tab ────────────────────────────────────────────────
+            _AsyncPostList(
+              postsAsync: myFeedAsync,
+              emptyMessage: 'Join communities and be the first to post!',
+              onRefresh: () => ref
+                  .read(feedProvider.notifier)
+                  .refresh(
+                    category: _selectedCategory == 'All'
+                        ? null
+                        : _selectedCategory,
                   ),
-            _PostList(
-              posts: _indiaPosts,
-              loading: _loading,
-              showCollege: true,
-              onUpvote: _upvotePost,
+              onUpvote: (id) => ref.read(feedProvider.notifier).toggleLike(id),
+              onTap: _openPost,
+            ),
+            // ── Across India tab ───────────────────────────────────────────
+            _AsyncPostList(
+              postsAsync: globalAsync,
+              emptyMessage: 'No posts found across communities.',
+              onRefresh: () => ref
+                  .read(globalFeedProvider.notifier)
+                  .refresh(
+                    category: _selectedCategory == 'All'
+                        ? null
+                        : _selectedCategory,
+                  ),
+              onUpvote: (id) =>
+                  ref.read(globalFeedProvider.notifier).toggleLike(id),
               onTap: _openPost,
             ),
           ],
@@ -200,108 +170,104 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 }
 
-class _PostList extends StatelessWidget {
-  final List<Post> posts;
-  final bool loading;
-  final bool showCollege;
-  final Future<Post> Function(String) onUpvote;
+// ── Async post list ───────────────────────────────────────────────────────────
+
+class _AsyncPostList extends StatelessWidget {
+  final AsyncValue<List<Post>> postsAsync;
+  final String emptyMessage;
+  final Future<void> Function() onRefresh;
+  final Future<void> Function(String id) onUpvote;
   final void Function(Post) onTap;
 
-  const _PostList({
-    required this.posts,
-    required this.loading,
-    required this.showCollege,
+  const _AsyncPostList({
+    required this.postsAsync,
+    required this.emptyMessage,
+    required this.onRefresh,
     required this.onUpvote,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (posts.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.forum_outlined,
-              size: 64,
-              color: AppTheme.textLight.withOpacity(0.4),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'No posts yet',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: AppTheme.textSecondary,
-                fontSize: 16,
+    return postsAsync.when(
+      loading: () => const SkeletonPostList(count: 4),
+      error: (e, _) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.cloud_off_rounded,
+                size: 56,
+                color: AppTheme.textLight,
               ),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Be the first to post!',
-              style: TextStyle(color: AppTheme.textLight),
-            ),
-          ],
-        ),
-      );
-    }
-    return RefreshIndicator(
-      onRefresh: () async {},
-      child: ListView.builder(
-        padding: const EdgeInsets.only(top: 4, bottom: 100),
-        itemCount: posts.length,
-        itemBuilder: (_, i) => PostCard(
-          post: posts[i],
-          // showCollegeName: showCollege,
-          onTap: () => onTap(posts[i]),
-          onUpvote: onUpvote,
+              const SizedBox(height: 12),
+              Text(
+                e.toString().replaceFirst('Exception: ', ''),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextButton.icon(
+                onPressed: onRefresh,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
         ),
       ),
-    );
-  }
-}
-
-class _NoCollegeView extends StatelessWidget {
-  const _NoCollegeView();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.school_outlined,
-              size: 72,
-              color: AppTheme.textLight.withOpacity(0.4),
+      data: (posts) {
+        if (posts.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.forum_outlined,
+                  size: 64,
+                  color: AppTheme.textLight.withOpacity(0.4),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'No posts yet',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.textSecondary,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  emptyMessage,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppTheme.textLight),
+                ),
+              ],
             ),
-            const SizedBox(height: 20),
-            const Text(
-              'No college selected',
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.textPrimary,
-              ),
+          );
+        }
+        return RefreshIndicator(
+          color: AppTheme.primary,
+          onRefresh: onRefresh,
+          child: ListView.builder(
+            padding: const EdgeInsets.only(top: 4, bottom: 100),
+            itemCount: posts.length,
+            itemBuilder: (_, i) => PostCard(
+              post: posts[i],
+              onTap: () => onTap(posts[i]),
+              onUpvote: (id) async {
+                await onUpvote(id);
+                return posts[i];
+              },
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'Go to the Community tab to select your college and see posts from your campus.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: AppTheme.textSecondary,
-                height: 1.5,
-              ),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

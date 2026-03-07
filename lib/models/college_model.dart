@@ -10,6 +10,8 @@ class CollegeModel {
   final String physicalAddress;
   final List<String> adminUsers;
   final List<String> communities;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
   CollegeModel({
     required this.id,
     required this.name,
@@ -17,6 +19,8 @@ class CollegeModel {
     required this.physicalAddress,
     required this.adminUsers,
     required this.communities,
+    this.createdAt,
+    this.updatedAt,
   });
 
   CollegeModel copyWith({
@@ -26,6 +30,8 @@ class CollegeModel {
     String? physicalAddress,
     List<String>? adminUsers,
     List<String>? communities,
+    DateTime? createdAt,
+    DateTime? updatedAt,
   }) {
     return CollegeModel(
       id: id ?? this.id,
@@ -34,6 +40,8 @@ class CollegeModel {
       physicalAddress: physicalAddress ?? this.physicalAddress,
       adminUsers: adminUsers ?? this.adminUsers,
       communities: communities ?? this.communities,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
@@ -41,33 +49,43 @@ class CollegeModel {
     return <String, dynamic>{
       'id': id,
       'name': name,
-      'contactEmail': contactEmail,
-      'physicalAddress': physicalAddress,
-      'adminUsers': adminUsers,
+      'contact_email': contactEmail,
+      'physical_address': physicalAddress,
+      'admin_users': adminUsers,
       'communities': communities,
+      if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+      if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
     };
   }
 
   factory CollegeModel.fromMap(Map<String, dynamic> map) {
+    DateTime? _parseDate(dynamic v) {
+      if (v == null) return null;
+      if (v is String) return DateTime.tryParse(v);
+      return null;
+    }
+
     return CollegeModel(
       id: (map['id'] ?? map['_id'] ?? '') as String,
       name: (map['name'] ?? '') as String,
       contactEmail:
-          (map['contactEmail'] ?? map['contact_email'] ?? '') as String,
+          (map['contact_email'] ?? map['contactEmail'] ?? '') as String,
       physicalAddress:
-          (map['physicalAddress'] ??
-                  map['physical_address'] ??
+          (map['physical_address'] ??
+                  map['physicalAddress'] ??
                   map['address'] ??
                   '')
               as String,
-      adminUsers: map['adminUsers'] != null
-          ? List<String>.from(map['adminUsers'] as List)
-          : map['admin_users'] != null
+      adminUsers: map['admin_users'] != null
           ? List<String>.from(map['admin_users'] as List)
+          : map['adminUsers'] != null
+          ? List<String>.from(map['adminUsers'] as List)
           : [],
       communities: map['communities'] != null
           ? List<String>.from(map['communities'] as List)
           : [],
+      createdAt: _parseDate(map['created_at']),
+      updatedAt: _parseDate(map['updated_at']),
     );
   }
 

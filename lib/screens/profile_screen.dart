@@ -23,10 +23,7 @@ class ProfileScreen extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _EditProfileSheet(
-        initialName: user?.name ?? '',
-        initialCollege: user?.college ?? '',
-      ),
+      builder: (_) => _EditProfileSheet(initialName: user?.name ?? ''),
     );
   }
 
@@ -272,12 +269,8 @@ class ProfileScreen extends ConsumerWidget {
 
 class _EditProfileSheet extends ConsumerStatefulWidget {
   final String initialName;
-  final String initialCollege;
 
-  const _EditProfileSheet({
-    required this.initialName,
-    required this.initialCollege,
-  });
+  const _EditProfileSheet({required this.initialName});
 
   @override
   ConsumerState<_EditProfileSheet> createState() => _EditProfileSheetState();
@@ -285,36 +278,27 @@ class _EditProfileSheet extends ConsumerStatefulWidget {
 
 class _EditProfileSheetState extends ConsumerState<_EditProfileSheet> {
   late final TextEditingController _nameCtrl;
-  late final TextEditingController _collegeCtrl;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController(text: widget.initialName);
-    _collegeCtrl = TextEditingController(text: widget.initialCollege);
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
-    _collegeCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     final name = _nameCtrl.text.trim();
-    final college = _collegeCtrl.text.trim();
     if (name.isEmpty) return;
 
     setState(() => _saving = true);
     try {
-      await ref
-          .read(profileEditProvider.notifier)
-          .updateProfile(
-            name: name,
-            college: college.isNotEmpty ? college : null,
-          );
+      await ref.read(profileEditProvider.notifier).updateProfile(name: name);
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -380,19 +364,6 @@ class _EditProfileSheetState extends ConsumerState<_EditProfileSheet> {
             decoration: InputDecoration(
               labelText: 'Display Name',
               prefixIcon: const Icon(Icons.person_outline_rounded),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          // College field
-          TextField(
-            controller: _collegeCtrl,
-            textCapitalization: TextCapitalization.words,
-            decoration: InputDecoration(
-              labelText: 'College (optional)',
-              prefixIcon: const Icon(Icons.school_outlined),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),

@@ -977,13 +977,13 @@ class _JoinButtonState extends ConsumerState<_JoinButton> {
     if (_loading || _joinResult != null) return;
     setState(() => _loading = true);
     try {
-      final community = await ref
+      final result = await ref
           .read(communityViewModelProvider.notifier)
           .joinCommunity(widget.item.id);
 
       if (mounted) {
-        // PUBLIC = joined instantly, PRIVATE = request pending
-        if (community.type != 'PRIVATE') {
+        // status='joined' = joined instantly, status='requested' = pending
+        if (result.status == 'joined') {
           setState(() => _joinResult = true);
           widget.onJoined();
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1356,7 +1356,7 @@ class _CommunityCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${community.member_users.length} members',
+                  '${community.memberCount} member${community.memberCount == 1 ? '' : 's'}',
                   style: const TextStyle(
                     fontSize: 12,
                     color: AppTheme.textSecondary,

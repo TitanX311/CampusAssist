@@ -2,6 +2,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:marquee/marquee.dart';
@@ -21,10 +22,13 @@ class CreatePostScreen extends ConsumerStatefulWidget {
 
 class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
   final _contentCtrl = TextEditingController();
+  final _contentFocus = FocusNode();
   final _locationCtrl = TextEditingController();
   // bool _isAnonymous = true;
   bool _addLocation = false;
   bool _submitting = false;
+  bool _showPreview = false;
+  String _selectedCategory = 'general';
   PickedLocation? _pickedLocation;
   final _formKey = GlobalKey<FormState>();
   final ImagePicker _imagePicker = ImagePicker();
@@ -40,6 +44,7 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
   @override
   void dispose() {
     _contentCtrl.dispose();
+    _contentFocus.dispose();
     _locationCtrl.dispose();
     super.dispose();
   }
@@ -137,6 +142,10 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
           .read(postListProvider(widget.communityId!).notifier)
           .createPost(
             content: _contentCtrl.text.trim(),
+            category: _selectedCategory,
+            locationLabel: _pickedLocation?.label,
+            locationLat: _pickedLocation?.latLng.latitude,
+            locationLng: _pickedLocation?.latLng.longitude,
             attachments: _attachments,
             onFileProgress: (fileIndex, sent, total) {
               if (!mounted) return;
@@ -271,9 +280,9 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
                 ),
               const SizedBox(height: 20),
 
-              // Content
+              // ── Category picker ──────────────────────────────────────────
               const Text(
-                'Description *',
+                'Category',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -281,17 +290,223 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              TextFormField(
-                controller: _contentCtrl,
-                decoration: const InputDecoration(
-                  hintText: 'What do you want to share or ask?',
+              SizedBox(
+                height: 36,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children:
+                      [
+                        'general',
+                        'academics',
+                        'hostel',
+                        'facilities',
+                        'food',
+                        'career',
+                        'events',
+                      ].map((cat) {
+                        final selected = _selectedCategory == cat;
+                        final label = cat[0].toUpperCase() + cat.substring(1);
+                        return GestureDetector(
+                          onTap: () => setState(() => _selectedCategory = cat),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 160),
+                            margin: const EdgeInsets.only(right: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 7,
+                            ),
+                            decoration: BoxDecoration(
+                              color: selected ? AppTheme.primary : Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: selected
+                                    ? AppTheme.primary
+                                    : AppTheme.divider,
+                              ),
+                            ),
+                            child: Text(
+                              label,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: selected
+                                    ? Colors.white
+                                    : AppTheme.textSecondary,
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
                 ),
-                maxLines: 6,
-                maxLength: 2000,
-                validator: (v) => (v == null || v.trim().isEmpty)
-                    ? 'Description is required'
-                    : null,
               ),
+              const SizedBox(height: 20),
+
+              // Content — markdown editor / preview
+              Row(
+                children: [
+                  const Text(
+                    'Description *',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.textPrimary,
+                    ),
+                  ),
+                  const Spacer(),
+                  // Write / Preview toggle
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AppTheme.surface,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppTheme.divider),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _TabBtn(
+                          label: 'Write',
+                          active: !_showPreview,
+                          onTap: () => setState(() => _showPreview = false),
+                        ),
+                        _TabBtn(
+                          label: 'Preview',
+                          active: _showPreview,
+                          onTap: () {
+                            _contentFocus.unfocus();
+                            setState(() => _showPreview = true);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              if (!_showPreview) ...[
+                // ── Markdown toolbar ──────────────────────────────────────
+                _MarkdownToolbar(
+                  controller: _contentCtrl,
+                  focusNode: _contentFocus,
+                ),
+                const SizedBox(height: 4),
+                // ── Editor ───────────────────────────────────────────────
+                TextFormField(
+                  controller: _contentCtrl,
+                  focusNode: _contentFocus,
+                  decoration: InputDecoration(
+                    hintText:
+                        'What do you want to share or ask?\n\nSupports **bold**, *italic*, # headings, - lists, `code`…',
+                    hintStyle: const TextStyle(
+                      fontSize: 13,
+                      color: AppTheme.textLight,
+                    ),
+                    alignLabelWithHint: true,
+                    border: const OutlineInputBorder(
+                      borderRadius: BorderRadius.vertical(
+                        bottom: Radius.circular(10),
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: const BorderRadius.vertical(
+                        bottom: Radius.circular(10),
+                      ),
+                      borderSide: BorderSide(color: AppTheme.divider),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: const BorderRadius.vertical(
+                        bottom: Radius.circular(10),
+                      ),
+                      borderSide: BorderSide(
+                        color: AppTheme.primary,
+                        width: 1.5,
+                      ),
+                    ),
+                    errorBorder: OutlineInputBorder(
+                      borderRadius: const BorderRadius.vertical(
+                        bottom: Radius.circular(10),
+                      ),
+                      borderSide: BorderSide(color: AppTheme.events),
+                    ),
+                    focusedErrorBorder: OutlineInputBorder(
+                      borderRadius: const BorderRadius.vertical(
+                        bottom: Radius.circular(10),
+                      ),
+                      borderSide: BorderSide(
+                        color: AppTheme.events,
+                        width: 1.5,
+                      ),
+                    ),
+                  ),
+                  maxLines: 10,
+                  minLines: 6,
+                  maxLength: 2000,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 13.5,
+                    height: 1.55,
+                    color: AppTheme.textPrimary,
+                  ),
+                  onChanged: (_) => setState(() {}),
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'Description is required'
+                      : null,
+                ),
+              ] else ...[
+                // ── Preview ───────────────────────────────────────────────
+                Container(
+                  width: double.infinity,
+                  constraints: const BoxConstraints(minHeight: 160),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.divider),
+                  ),
+                  child: _contentCtrl.text.trim().isEmpty
+                      ? const Text(
+                          'Nothing to preview yet.',
+                          style: TextStyle(
+                            color: AppTheme.textLight,
+                            fontSize: 13,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        )
+                      : MarkdownBody(
+                          data: _contentCtrl.text,
+                          selectable: true,
+                          styleSheet:
+                              MarkdownStyleSheet.fromTheme(
+                                Theme.of(context),
+                              ).copyWith(
+                                p: const TextStyle(
+                                  fontSize: 14,
+                                  height: 1.55,
+                                  color: AppTheme.textPrimary,
+                                ),
+                                code: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 12.5,
+                                  backgroundColor: AppTheme.surface,
+                                  color: AppTheme.primary,
+                                ),
+                                codeblockDecoration: BoxDecoration(
+                                  color: AppTheme.surface,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: AppTheme.divider),
+                                ),
+                                blockquoteDecoration: BoxDecoration(
+                                  border: Border(
+                                    left: BorderSide(
+                                      color: AppTheme.primary.withOpacity(0.5),
+                                      width: 3,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                        ),
+                ),
+              ],
               const SizedBox(height: 16),
 
               // Attach photos
@@ -750,4 +965,210 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
       ),
     );
   }
+}
+
+// ── Write/Preview tab button ───────────────────────────────────────────────────
+
+class _TabBtn extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _TabBtn({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? AppTheme.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: active ? Colors.white : AppTheme.textSecondary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Markdown formatting toolbar ────────────────────────────────────────────────
+
+class _MarkdownToolbar extends StatelessWidget {
+  final TextEditingController controller;
+  final FocusNode focusNode;
+
+  const _MarkdownToolbar({required this.controller, required this.focusNode});
+
+  void _wrap(String before, String after) {
+    final text = controller.text;
+    final sel = controller.selection;
+    final selectedText = sel.isValid && sel.start != sel.end
+        ? text.substring(sel.start, sel.end)
+        : '';
+    final replacement = '$before$selectedText$after';
+    final newText = text.replaceRange(
+      sel.isValid ? sel.start : text.length,
+      sel.isValid ? sel.end : text.length,
+      replacement,
+    );
+    final cursorPos =
+        (sel.isValid ? sel.start : text.length) +
+        before.length +
+        selectedText.length +
+        after.length;
+    controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: cursorPos),
+    );
+    focusNode.requestFocus();
+  }
+
+  void _insertLine(String prefix) {
+    final text = controller.text;
+    final sel = controller.selection;
+    final pos = sel.isValid ? sel.start : text.length;
+    // Find start of line
+    final lineStart = text.lastIndexOf('\n', pos - 1) + 1;
+    final lineText = text.substring(lineStart, pos);
+    // If already starts with prefix, remove it; otherwise prepend
+    String newText;
+    int newPos;
+    if (lineText.startsWith(prefix)) {
+      newText = text.replaceRange(lineStart, lineStart + prefix.length, '');
+      newPos = pos - prefix.length;
+    } else {
+      newText = text.replaceRange(lineStart, lineStart, prefix);
+      newPos = pos + prefix.length;
+    }
+    controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: newPos),
+    );
+    focusNode.requestFocus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 40,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: AppTheme.divider),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: Row(
+          children: [
+            _ToolbarBtn(
+              icon: Icons.format_bold,
+              tooltip: 'Bold',
+              onTap: () => _wrap('**', '**'),
+            ),
+            _ToolbarBtn(
+              icon: Icons.format_italic,
+              tooltip: 'Italic',
+              onTap: () => _wrap('*', '*'),
+            ),
+            _ToolbarBtn(
+              icon: Icons.format_strikethrough,
+              tooltip: 'Strikethrough',
+              onTap: () => _wrap('~~', '~~'),
+            ),
+            const _ToolbarDivider(),
+            _ToolbarBtn(
+              icon: Icons.title_rounded,
+              tooltip: 'Heading',
+              onTap: () => _insertLine('## '),
+            ),
+            _ToolbarBtn(
+              icon: Icons.format_list_bulleted,
+              tooltip: 'Bullet list',
+              onTap: () => _insertLine('- '),
+            ),
+            _ToolbarBtn(
+              icon: Icons.format_list_numbered,
+              tooltip: 'Numbered list',
+              onTap: () => _insertLine('1. '),
+            ),
+            _ToolbarBtn(
+              icon: Icons.format_quote_rounded,
+              tooltip: 'Quote',
+              onTap: () => _insertLine('> '),
+            ),
+            const _ToolbarDivider(),
+            _ToolbarBtn(
+              icon: Icons.code_rounded,
+              tooltip: 'Inline code',
+              onTap: () => _wrap('`', '`'),
+            ),
+            _ToolbarBtn(
+              icon: Icons.integration_instructions_outlined,
+              tooltip: 'Code block',
+              onTap: () => _wrap('\n```\n', '\n```\n'),
+            ),
+            const _ToolbarDivider(),
+            _ToolbarBtn(
+              icon: Icons.link_rounded,
+              tooltip: 'Link',
+              onTap: () => _wrap('[', '](url)'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ToolbarBtn extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _ToolbarBtn({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Icon(icon, size: 18, color: AppTheme.textSecondary),
+        ),
+      ),
+    );
+  }
+}
+
+class _ToolbarDivider extends StatelessWidget {
+  const _ToolbarDivider();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 1,
+    height: 20,
+    color: AppTheme.divider,
+    margin: const EdgeInsets.symmetric(horizontal: 4),
+  );
 }

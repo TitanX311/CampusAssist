@@ -80,10 +80,11 @@ class AttachmentRemoteRepository {
     try {
       final response = await _dio.get<dynamic>('/attachments/my');
       final data = response.data;
+      final dataMap = data is Map<String, dynamic> ? data : null;
       final list =
           (data is List
                   ? data
-                  : (data as Map<String, dynamic>)['attachments'] ?? [])
+                  : dataMap?['items'] ?? dataMap?['attachments'] ?? [])
               as List<dynamic>;
       return list
           .map((e) => Attachment.fromJson(e as Map<String, dynamic>))
@@ -114,8 +115,8 @@ class AttachmentRemoteRepository {
     }
   }
 
-  /// GET /api/attachments/{attachment_id}/download
-  /// Returns the download URL (or triggers a download stream).
+  /// Returns the streaming download URL for an attachment.
+  /// Requests to this URL require a valid Bearer token in the Authorization header.
   String downloadUrl(String attachmentId) =>
       '${ServerConstants.baseURL}/attachments/$attachmentId/download';
 

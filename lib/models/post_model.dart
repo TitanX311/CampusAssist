@@ -34,15 +34,18 @@ extension PostCategoryExtension on PostCategory {
 class Post {
   final String id;
   final String content;
-  final List<String> attachments;
-  final String authorAlias; // anonymized handle shown in the UI
+  final List<String> attachments; // attachment UUIDs
+  final String authorAlias; // user_name from API (or anonymized handle)
+  final String? authorPicture; // user_picture from API
+  final String userId; // user_id from API
   final String communityId;
   final String collegeId;
   final String collegeName;
   final PostCategory category;
-  final int upvotes;
-  final bool hasUpvoted;
-  final int answerCount;
+  final int upvotes; // maps to 'likes' in API
+  final bool hasUpvoted; // maps to 'liked_by_me' in API
+  final int answerCount; // maps to 'comment_count' in API
+  final int views;
   final DateTime createdAt;
   final String? locationLabel; // selected campus landmark label
 
@@ -51,6 +54,8 @@ class Post {
     required this.content,
     this.attachments = const [],
     required this.authorAlias,
+    this.authorPicture,
+    this.userId = '',
     this.communityId = '',
     this.collegeId = '',
     this.collegeName = '',
@@ -58,22 +63,31 @@ class Post {
     this.upvotes = 0,
     this.hasUpvoted = false,
     this.answerCount = 0,
+    this.views = 0,
     required this.createdAt,
     this.locationLabel,
   });
 
-  Post copyWith({int? upvotes, bool? hasUpvoted}) => Post(
+  Post copyWith({
+    int? upvotes,
+    bool? hasUpvoted,
+    int? answerCount,
+    int? views,
+  }) => Post(
     id: id,
     content: content,
     attachments: attachments,
     authorAlias: authorAlias,
+    authorPicture: authorPicture,
+    userId: userId,
     communityId: communityId,
     collegeId: collegeId,
     collegeName: collegeName,
     category: category,
     upvotes: upvotes ?? this.upvotes,
     hasUpvoted: hasUpvoted ?? this.hasUpvoted,
-    answerCount: answerCount,
+    answerCount: answerCount ?? this.answerCount,
+    views: views ?? this.views,
     createdAt: createdAt,
     locationLabel: locationLabel,
   );
@@ -81,18 +95,31 @@ class Post {
   factory Post.fromJson(Map<String, dynamic> json) => Post(
     id: json['id'] as String,
     content: json['content'] as String? ?? '',
+    // attachments is a list of UUIDs from the API
     attachments: (json['attachments'] as List<dynamic>? ?? []).cast<String>(),
-    authorAlias: json['author_alias'] as String? ?? '',
+    // API returns user_name; fall back to user_id prefix for anonymous display
+    authorAlias:
+        json['user_name'] as String? ??
+        (json['user_id'] as String? ?? '').substring(
+          0,
+          8.clamp(0, (json['user_id'] as String? ?? '').length),
+        ),
+    authorPicture: json['user_picture'] as String?,
+    userId: json['user_id'] as String? ?? '',
     communityId: json['community_id'] as String? ?? '',
+    // college_id / college_name not in PostResponse — keep defaults
     collegeId: json['college_id'] as String? ?? '',
     collegeName: json['college_name'] as String? ?? '',
     category: PostCategory.values.firstWhere(
-      (e) => e.name == json['category'],
+      (e) => e.name == (json['category'] as String?),
       orElse: () => PostCategory.general,
     ),
-    upvotes: json['upvotes'] as int? ?? 0,
-    hasUpvoted: json['has_upvoted'] as bool? ?? false,
-    answerCount: json['answer_count'] as int? ?? 0,
+    upvotes: json['likes'] as int? ?? json['upvotes'] as int? ?? 0,
+    hasUpvoted:
+        json['liked_by_me'] as bool? ?? json['has_upvoted'] as bool? ?? false,
+    answerCount:
+        json['comment_count'] as int? ?? json['answer_count'] as int? ?? 0,
+    views: json['views'] as int? ?? 0,
     createdAt: DateTime.parse(json['created_at'] as String),
     locationLabel: json['location_label'] as String?,
   );
@@ -101,14 +128,17 @@ class Post {
     'id': id,
     'content': content,
     'attachments': attachments,
-    'author_alias': authorAlias,
+    'user_name': authorAlias,
+    'user_picture': authorPicture,
+    'user_id': userId,
     'community_id': communityId,
     'college_id': collegeId,
     'college_name': collegeName,
     'category': category.name,
-    'upvotes': upvotes,
-    'has_upvoted': hasUpvoted,
-    'answer_count': answerCount,
+    'likes': upvotes,
+    'liked_by_me': hasUpvoted,
+    'comment_count': answerCount,
+    'views': views,
     'created_at': createdAt.toIso8601String(),
     'location_label': locationLabel,
   };
@@ -144,35 +174,79 @@ class Answer {
   );
 }
 
-/// Maps to the API comment shape for /api/posts/{post_id}/comments
+/// Maps to the API comment shape for /api/comments
 class Comment {
   final String id;
   final String postId;
-  final String body;
-  final String authorAlias;
+  final String userId;
+  final String communityId;
+  final String? parentId;
+  final String body; // maps to 'content' in API
+  final String authorAlias; // maps to 'user_name' in API
+  final String? authorPicture; // maps to 'user_picture' in API
+  final int likes;
+  final bool likedByMe;
+  final int replyCount;
   final DateTime createdAt;
 
   const Comment({
     required this.id,
     required this.postId,
+    this.userId = '',
+    this.communityId = '',
+    this.parentId,
     required this.body,
-    required this.authorAlias,
+    this.authorAlias = '',
+    this.authorPicture,
+    this.likes = 0,
+    this.likedByMe = false,
+    this.replyCount = 0,
     required this.createdAt,
   });
+
+  Comment copyWith({int? likes, bool? likedByMe}) => Comment(
+    id: id,
+    postId: postId,
+    userId: userId,
+    communityId: communityId,
+    parentId: parentId,
+    body: body,
+    authorAlias: authorAlias,
+    authorPicture: authorPicture,
+    likes: likes ?? this.likes,
+    likedByMe: likedByMe ?? this.likedByMe,
+    replyCount: replyCount,
+    createdAt: createdAt,
+  );
 
   factory Comment.fromJson(Map<String, dynamic> json) => Comment(
     id: json['id'] as String,
     postId: json['post_id'] as String? ?? '',
-    body: json['body'] as String,
-    authorAlias: json['author_alias'] as String? ?? '',
+    userId: json['user_id'] as String? ?? '',
+    communityId: json['community_id'] as String? ?? '',
+    parentId: json['parent_id'] as String?,
+    body: json['content'] as String? ?? json['body'] as String? ?? '',
+    authorAlias:
+        json['user_name'] as String? ?? json['author_alias'] as String? ?? '',
+    authorPicture: json['user_picture'] as String?,
+    likes: json['likes'] as int? ?? 0,
+    likedByMe: json['liked_by_me'] as bool? ?? false,
+    replyCount: json['reply_count'] as int? ?? 0,
     createdAt: DateTime.parse(json['created_at'] as String),
   );
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'post_id': postId,
-    'body': body,
-    'author_alias': authorAlias,
+    'user_id': userId,
+    'community_id': communityId,
+    'parent_id': parentId,
+    'content': body,
+    'user_name': authorAlias,
+    'user_picture': authorPicture,
+    'likes': likes,
+    'liked_by_me': likedByMe,
+    'reply_count': replyCount,
     'created_at': createdAt.toIso8601String(),
   };
 }
