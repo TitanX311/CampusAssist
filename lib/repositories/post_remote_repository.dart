@@ -147,6 +147,9 @@ class PostRemoteRepository {
           'community_id': communityId,
           'content': content,
           if (attachmentIds.isNotEmpty) 'attachments': attachmentIds,
+          if (locationLabel != null) 'location_label': locationLabel,
+          if (locationLat != null) 'location_lat': locationLat,
+          if (locationLng != null) 'location_lng': locationLng,
         },
       );
       debugPrint('[PostRepo] createPost → id=${response.data!['id']}');
@@ -185,15 +188,34 @@ class PostRemoteRepository {
   /// POST /api/posts/{post_id}/like — idempotent (add like)
   /// DELETE /api/posts/{post_id}/like — idempotent (remove like)
   /// [hasUpvoted] is the CURRENT state before the toggle.
-  Future<void> likePost(String postId, {bool hasUpvoted = false}) async {
+  /// Returns (likes, liked) from the server's LikePostResponse.
+  Future<({int likes, bool liked})> likePost(
+    String postId, {
+    bool hasUpvoted = false,
+  }) async {
     try {
+      late Response<Map<String, dynamic>> response;
       if (hasUpvoted) {
         debugPrint('[PostRepo] DELETE /posts/$postId/like (unlike)');
-        await _dio.delete('/posts/$postId/like');
+        response = await _dio.delete('/posts/$postId/like');
       } else {
         debugPrint('[PostRepo] POST /posts/$postId/like (like)');
-        await _dio.post('/posts/$postId/like');
+        response = await _dio.post('/posts/$postId/like');
       }
+      final data = response.data ?? {};
+      final likes = data['likes'] as int? ?? data['like_count'] as int? ?? 0;
+      // Server may return 'liked', 'liked_by_me', or nothing
+      final bool liked;
+      if (data.containsKey('liked')) {
+        liked = data['liked'] as bool? ?? !hasUpvoted;
+      } else if (data.containsKey('liked_by_me')) {
+        liked = data['liked_by_me'] as bool? ?? !hasUpvoted;
+      } else {
+        // No liked field — derive from the action we just took
+        liked = !hasUpvoted;
+      }
+      debugPrint('[PostRepo] likePost → likes=$likes liked=$liked');
+      return (likes: likes, liked: liked);
     } on DioException catch (e) {
       throw _mapDioError(e);
     }

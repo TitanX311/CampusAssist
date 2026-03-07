@@ -27,6 +27,57 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
   void initState() {
     super.initState();
     _post = widget.post;
+    // Fetch fresh post data so liked_by_me and likes count are accurate.
+    // The feed API never returns liked_by_me so hasUpvoted is always false
+    // from feeds — we fix it here from the server.
+    _refreshPostState();
+  }
+
+  Future<void> _refreshPostState() async {
+    debugPrint('[PostDetail] ══════ INIT POST STATE ══════');
+    debugPrint('[PostDetail] passed-in post:');
+    debugPrint('[PostDetail]   id          = ${_post.id}');
+    debugPrint('[PostDetail]   likes       = ${_post.upvotes}');
+    debugPrint('[PostDetail]   hasUpvoted  = ${_post.hasUpvoted}');
+    debugPrint('[PostDetail]   authorAlias = ${_post.authorAlias}');
+    debugPrint('[PostDetail]   userId      = ${_post.userId}');
+    debugPrint('[PostDetail]   communityId = ${_post.communityId}');
+    debugPrint('[PostDetail] ════════════════════════════════');
+
+    // First check session — if user already interacted this session, trust that
+    final session = ref.read(sessionLikesProvider);
+    debugPrint('[PostDetail] sessionLikes = $session');
+    if (session.containsKey(_post.id)) {
+      final liked = session[_post.id]!;
+      debugPrint(
+        '[PostDetail] session override → hasUpvoted=$liked (skipping fetch)',
+      );
+      if (liked != _post.hasUpvoted) {
+        if (mounted) setState(() => _post = _post.copyWith(hasUpvoted: liked));
+      }
+      return;
+    }
+
+    // Otherwise fetch fresh from the server to get liked_by_me
+    if (!mounted) return;
+    try {
+      debugPrint(
+        '[PostDetail] fetching fresh post from GET /posts/${_post.id}',
+      );
+      final fresh = await ref
+          .read(postRemoteRepositoryProvider)
+          .getPostById(_post.id);
+      debugPrint('[PostDetail] ══════ FRESH POST FROM SERVER ══════');
+      debugPrint('[PostDetail]   id          = ${fresh.id}');
+      debugPrint('[PostDetail]   likes       = ${fresh.upvotes}');
+      debugPrint('[PostDetail]   hasUpvoted  = ${fresh.hasUpvoted}');
+      debugPrint('[PostDetail]   authorAlias = ${fresh.authorAlias}');
+      debugPrint('[PostDetail]   userId      = ${fresh.userId}');
+      debugPrint('[PostDetail] ════════════════════════════════════');
+      if (mounted) setState(() => _post = fresh);
+    } catch (e) {
+      debugPrint('[PostDetail] getPostById failed (non-fatal): $e');
+    }
   }
 
   @override
@@ -36,24 +87,63 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
   }
 
   Future<void> _upvotePost() async {
-    final wasUpvoted = _post.hasUpvoted;
-    setState(
-      () => _post = _post.copyWith(
-        upvotes: wasUpvoted ? _post.upvotes - 1 : _post.upvotes + 1,
-        hasUpvoted: !wasUpvoted,
-      ),
+    // Capture snapshot BEFORE any changes so we can revert cleanly
+    final snapshot = _post;
+    final wasUpvoted = snapshot.hasUpvoted;
+
+    debugPrint('[PostDetail] ══════ TOGGLE LIKE ══════');
+    debugPrint(
+      '[PostDetail] post_id=${snapshot.id}  '
+      'wasUpvoted=$wasUpvoted  currentLikes=${snapshot.upvotes}',
     );
+    debugPrint(
+      '[PostDetail] → will call ${wasUpvoted ? 'DELETE' : 'POST'} /posts/${snapshot.id}/like',
+    );
+
+    // 1. Optimistic local update
+    setState(() {
+      _post = snapshot.copyWith(
+        upvotes: wasUpvoted ? snapshot.upvotes - 1 : snapshot.upvotes + 1,
+        hasUpvoted: !wasUpvoted,
+      );
+    });
+
     try {
-      await ref.read(postRemoteRepositoryProvider).likePost(_post.id);
-    } catch (_) {
+      // 2. Call API — POST to like, DELETE to unlike
+      final result = await ref
+          .read(postRemoteRepositoryProvider)
+          .likePost(snapshot.id, hasUpvoted: wasUpvoted);
+
+      debugPrint(
+        '[PostDetail] server response → likes=${result.likes}  liked=${result.liked}',
+      );
+      debugPrint('[PostDetail] ════════════════════════');
+
+      // 3. Sync authoritative server values locally
       if (mounted) {
-        setState(
-          () => _post = _post.copyWith(
-            upvotes: wasUpvoted ? _post.upvotes + 1 : _post.upvotes - 1,
-            hasUpvoted: wasUpvoted,
-          ),
-        );
+        setState(() {
+          _post = _post.copyWith(
+            upvotes: result.likes,
+            hasUpvoted: result.liked,
+          );
+        });
       }
+
+      // 4. Propagate to all feed / community lists
+      ref
+          .read(feedProvider.notifier)
+          .syncLike(snapshot.id, result.likes, result.liked);
+      ref
+          .read(globalFeedProvider.notifier)
+          .syncLike(snapshot.id, result.likes, result.liked);
+      if (snapshot.communityId.isNotEmpty) {
+        ref
+            .read(postListProvider(snapshot.communityId).notifier)
+            .syncLike(snapshot.id, result.likes, result.liked);
+      }
+    } catch (_) {
+      // 5. Revert to snapshot on failure
+      if (mounted) setState(() => _post = snapshot);
     }
   }
 
@@ -95,6 +185,8 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
           collegeId: _post.collegeId,
           collegeName: _post.collegeName,
           locationLabel: _post.locationLabel,
+          locationLat: _post.locationLat,
+          locationLng: _post.locationLng,
           postTitle: _post.content.length > 60
               ? '${_post.content.substring(0, 60)}...'
               : _post.content,
@@ -106,6 +198,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final catColor = AppTheme.categoryColor(_post.category.label);
+
     final commentsAsync = ref.watch(
       commentsProvider(postId: _post.id, communityId: _post.communityId),
     );
@@ -125,14 +218,12 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
       ),
       body: Column(
         children: [
-          // ── Scrollable body ────────────────────────────────────────────────
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ── Full post card ─────────────────────────────────────────
                   Container(
                     decoration: BoxDecoration(
                       color: AppTheme.cardBg,
@@ -142,7 +233,6 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Category header strip
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 16,
@@ -198,14 +288,11 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                             ],
                           ),
                         ),
-
-                        // Post body
                         Padding(
                           padding: const EdgeInsets.all(16),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // Markdown-rendered content
                               MarkdownBody(
                                 data: _post.content,
                                 selectable: true,
@@ -257,8 +344,6 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                                       ),
                                     ),
                               ),
-
-                              // Location banner
                               if (_post.locationLabel != null) ...[
                                 const SizedBox(height: 14),
                                 _CampusMapBanner(
@@ -266,10 +351,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                                   onTap: _openCampusMap,
                                 ),
                               ],
-
                               const SizedBox(height: 14),
-
-                              // Author + upvote
                               Row(
                                 children: [
                                   const Icon(
@@ -361,145 +443,81 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                       ],
                     ),
                   ),
-
-                  const SizedBox(height: 20),
-
-                  // ── Comments ───────────────────────────────────────────────
-                  commentsAsync.when(
-                    loading: () => Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${_post.answerCount} Answers',
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      const Text(
+                        'Answers',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.divider,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '${_post.answerCount}',
                           style: const TextStyle(
-                            fontSize: 16,
+                            fontSize: 12,
                             fontWeight: FontWeight.w700,
-                            color: AppTheme.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        const SkeletonCommentList(count: 3),
-                      ],
-                    ),
-                    error: (e, _) => Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              '${_post.answerCount} Answers',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.textPrimary,
-                              ),
-                            ),
-                            const Spacer(),
-                            TextButton.icon(
-                              onPressed: () => ref
-                                  .read(
-                                    commentsProvider(
-                                      postId: _post.id,
-                                      communityId: _post.communityId,
-                                    ).notifier,
-                                  )
-                                  .refresh(),
-                              icon: const Icon(Icons.refresh_rounded, size: 14),
-                              label: const Text(
-                                'Retry',
-                                style: TextStyle(fontSize: 12),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          e.toString().replaceFirst('Exception: ', ''),
-                          style: const TextStyle(
                             color: AppTheme.textSecondary,
-                            fontSize: 13,
                           ),
                         ),
-                      ],
-                    ),
-                    data: (comments) => Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              '${comments.length} Answer${comments.length == 1 ? '' : 's'}',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.textPrimary,
-                              ),
-                            ),
-                            const Spacer(),
-                            const Icon(
-                              Icons.sort_rounded,
-                              size: 16,
-                              color: AppTheme.textSecondary,
-                            ),
-                            const SizedBox(width: 4),
-                            const Text(
-                              'Latest',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: AppTheme.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        if (comments.isEmpty)
-                          Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(32),
-                              child: Column(
-                                children: [
-                                  Icon(
-                                    Icons.chat_bubble_outline_rounded,
-                                    size: 48,
-                                    color: AppTheme.textLight.withOpacity(0.5),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  const Text(
-                                    'Be the first to answer!',
-                                    style: TextStyle(
-                                      color: AppTheme.textSecondary,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          )
-                        else
-                          ...comments.map(
-                            (c) => _AnswerCard(
-                              comment: c,
-                              onDelete: () => ref
-                                  .read(
-                                    commentsProvider(
-                                      postId: _post.id,
-                                      communityId: _post.communityId,
-                                    ).notifier,
-                                  )
-                                  .deleteComment(c.id),
-                            ),
-                          ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-
-                  const SizedBox(height: 80),
+                  const SizedBox(height: 16),
+                  commentsAsync.when(
+                    data: (comments) {
+                      if (comments.isEmpty) {
+                        return Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 40),
+                            child: Column(
+                              children: [
+                                Icon(
+                                  Icons.chat_bubble_outline_rounded,
+                                  size: 40,
+                                  color: AppTheme.textLight.withOpacity(0.5),
+                                ),
+                                const SizedBox(height: 12),
+                                const Text(
+                                  'No answers yet. Be the first!',
+                                  style: TextStyle(color: AppTheme.textLight),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }
+                      return ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: comments.length,
+                        separatorBuilder: (c, i) => const SizedBox(height: 12),
+                        itemBuilder: (c, i) {
+                          final comment = comments[i];
+                          return _CommentCard(comment: comment);
+                        },
+                      );
+                    },
+                    loading: () => const SkeletonCommentList(),
+                    error: (e, s) => Center(child: Text('Error: $e')),
+                  ),
+                  const SizedBox(height: 100),
                 ],
               ),
             ),
           ),
-
-          // ── Answer input bar ───────────────────────────────────────────────
           Container(
             padding: EdgeInsets.fromLTRB(
               16,
@@ -508,65 +526,48 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
               12 + MediaQuery.of(context).viewInsets.bottom,
             ),
             decoration: BoxDecoration(
-              color: AppTheme.cardBg,
-              border: const Border(top: BorderSide(color: AppTheme.divider)),
+              color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                  color: AppTheme.textPrimary.withOpacity(0.05),
-                  blurRadius: 8,
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, -5),
                 ),
               ],
             ),
             child: Row(
               children: [
-                const CircleAvatar(
-                  radius: 18,
-                  backgroundColor: AppTheme.primaryLight,
-                  child: Icon(
-                    Icons.person_rounded,
-                    color: AppTheme.textOnPrimary,
-                    size: 18,
-                  ),
-                ),
-                const SizedBox(width: 10),
                 Expanded(
                   child: TextField(
                     controller: _answerCtrl,
-                    decoration: const InputDecoration(
-                      hintText: 'Write an answer…',
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 14,
+                    decoration: InputDecoration(
+                      hintText: 'Add an answer...',
+                      filled: true,
+                      fillColor: AppTheme.surface,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
                         vertical: 10,
                       ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
                     ),
-                    maxLines: 3,
-                    minLines: 1,
                   ),
                 ),
-                const SizedBox(width: 10),
-                GestureDetector(
-                  onTap: _submitting ? null : _submitAnswer,
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: const BoxDecoration(
-                      color: AppTheme.primary,
-                      shape: BoxShape.circle,
-                    ),
-                    child: _submitting
-                        ? const Padding(
-                            padding: EdgeInsets.all(10),
-                            child: CircularProgressIndicator(
-                              color: AppTheme.textOnPrimary,
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : const Icon(
-                            Icons.send_rounded,
-                            color: AppTheme.textOnPrimary,
-                            size: 18,
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  onPressed: _submitting ? null : _submitAnswer,
+                  icon: _submitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
                           ),
-                  ),
+                        )
+                      : const Icon(Icons.send_rounded),
                 ),
               ],
             ),
@@ -576,82 +577,6 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
     );
   }
 }
-
-// ── Answer Card ────────────────────────────────────────────────────────────────
-
-class _AnswerCard extends StatelessWidget {
-  final Comment comment;
-  final Future<void> Function() onDelete;
-
-  const _AnswerCard({required this.comment, required this.onDelete});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppTheme.cardBg,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.divider),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          MarkdownBody(
-            data: comment.body,
-            selectable: true,
-            styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context))
-                .copyWith(
-                  p: const TextStyle(
-                    fontSize: 13.5,
-                    color: AppTheme.textPrimary,
-                    height: 1.5,
-                  ),
-                  code: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                    backgroundColor: AppTheme.surface,
-                    color: AppTheme.primary,
-                  ),
-                ),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const Icon(
-                Icons.person_outline_rounded,
-                size: 13,
-                color: AppTheme.textLight,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                '@${comment.authorAlias}',
-                style: const TextStyle(fontSize: 11, color: AppTheme.textLight),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '· ${timeago.format(comment.createdAt)}',
-                style: const TextStyle(fontSize: 11, color: AppTheme.textLight),
-              ),
-              const Spacer(),
-              GestureDetector(
-                onTap: onDelete,
-                child: const Icon(
-                  Icons.delete_outline_rounded,
-                  size: 16,
-                  color: AppTheme.textLight,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Campus Map Banner ──────────────────────────────────────────────────────────
 
 class _CampusMapBanner extends StatelessWidget {
   final String locationLabel;
@@ -661,84 +586,96 @@ class _CampusMapBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
       child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              AppTheme.primary.withOpacity(0.08),
-              AppTheme.primaryLight.withOpacity(0.06),
-            ],
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-          ),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppTheme.primary.withOpacity(0.2)),
+          color: AppTheme.primary.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.primary.withOpacity(0.15)),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppTheme.primary.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(
-                Icons.map_rounded,
-                color: AppTheme.primary,
-                size: 18,
-              ),
+            const Icon(
+              Icons.location_on_rounded,
+              color: AppTheme.primary,
+              size: 20,
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 8),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'View on Campus Map',
+                    'Location Tagged',
                     style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
                       color: AppTheme.primary,
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.location_on_rounded,
-                        size: 11,
-                        color: AppTheme.textSecondary,
-                      ),
-                      const SizedBox(width: 3),
-                      Text(
-                        locationLabel,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: AppTheme.textSecondary,
-                        ),
-                      ),
-                    ],
+                  Text(
+                    locationLabel,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.textPrimary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
             ),
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: AppTheme.primary,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(
-                Icons.arrow_forward_ios_rounded,
-                size: 12,
-                color: AppTheme.textOnPrimary,
-              ),
-            ),
+            const Icon(Icons.map_outlined, color: AppTheme.primary, size: 18),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _CommentCard extends StatelessWidget {
+  final Comment comment;
+  const _CommentCard({required this.comment});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                '@${comment.authorAlias}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textPrimary,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                timeago.format(comment.createdAt),
+                style: const TextStyle(fontSize: 11, color: AppTheme.textLight),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            comment.body,
+            style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary),
+          ),
+        ],
       ),
     );
   }

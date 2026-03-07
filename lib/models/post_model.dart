@@ -48,6 +48,8 @@ class Post {
   final int views;
   final DateTime createdAt;
   final String? locationLabel; // selected campus landmark label
+  final double? locationLat; // latitude of the picked location
+  final double? locationLng; // longitude of the picked location
 
   const Post({
     required this.id,
@@ -66,6 +68,8 @@ class Post {
     this.views = 0,
     required this.createdAt,
     this.locationLabel,
+    this.locationLat,
+    this.locationLng,
   });
 
   Post copyWith({
@@ -90,6 +94,8 @@ class Post {
     views: views ?? this.views,
     createdAt: createdAt,
     locationLabel: locationLabel,
+    locationLat: locationLat,
+    locationLng: locationLng,
   );
 
   factory Post.fromJson(Map<String, dynamic> json) => Post(
@@ -122,6 +128,8 @@ class Post {
     views: json['views'] as int? ?? 0,
     createdAt: DateTime.parse(json['created_at'] as String),
     locationLabel: json['location_label'] as String?,
+    locationLat: (json['location_lat'] as num?)?.toDouble(),
+    locationLng: (json['location_lng'] as num?)?.toDouble(),
   );
 
   Map<String, dynamic> toJson() => {
@@ -141,6 +149,8 @@ class Post {
     'views': views,
     'created_at': createdAt.toIso8601String(),
     'location_label': locationLabel,
+    if (locationLat != null) 'location_lat': locationLat,
+    if (locationLng != null) 'location_lng': locationLng,
   };
 }
 

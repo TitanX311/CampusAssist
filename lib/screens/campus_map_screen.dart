@@ -1,17 +1,14 @@
 // lib/screens/campus_map_screen.dart
 //
 // Uses flutter_map + latlong2 (no API key required – OpenStreetMap tiles).
-// Add to pubspec.yaml:
-//   flutter_map: ^6.1.0
-//   latlong2: ^0.9.0
-//
-// For real campus data, replace _campusLocations with actual lat/lng values
-// and optionally supply a GeoJSON campus boundary overlay.
+// Geocodes the location label via Nominatim when not found in campus_locations.
 
 import 'dart:math' as math;
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../data/campus_locations.dart';
 
@@ -21,6 +18,8 @@ class CampusMapScreen extends StatefulWidget {
   final String collegeId;
   final String collegeName;
   final String? locationLabel;
+  final double? locationLat;
+  final double? locationLng;
   final String postTitle;
 
   const CampusMapScreen({
@@ -28,6 +27,8 @@ class CampusMapScreen extends StatefulWidget {
     required this.collegeId,
     required this.collegeName,
     required this.locationLabel,
+    this.locationLat,
+    this.locationLng,
     required this.postTitle,
   });
 
@@ -44,15 +45,30 @@ class _CampusMapScreenState extends State<CampusMapScreen>
   late final Animation<Offset> _cardSlide;
   late final Animation<double> _cardFade;
 
-  late final LatLng _pinLocation;
+  // The resolved pin – starts at the known fallback, updated after geocode
+  late LatLng _pinLocation;
+  String _resolvedLabel = '';
+  bool _geocoding = false;
   bool _satelliteMode = false;
   double _currentZoom = 17.0;
+
+  // Search
+  final _searchCtrl = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
     _mapCtrl = MapController();
-    _pinLocation = resolveLocation(widget.collegeId, widget.locationLabel);
+
+    // Use exact coordinates if available (stored when user picked on map)
+    if (widget.locationLat != null && widget.locationLng != null) {
+      _pinLocation = LatLng(widget.locationLat!, widget.locationLng!);
+    } else {
+      // Best-effort from the static table
+      _pinLocation = resolveLocation(widget.collegeId, widget.locationLabel);
+    }
+    _resolvedLabel = widget.locationLabel ?? 'Campus Location';
 
     // Pulse animation for the pin ring
     _pulseCtrl = AnimationController(
@@ -78,6 +94,103 @@ class _CampusMapScreenState extends State<CampusMapScreen>
     Future.delayed(const Duration(milliseconds: 300), () {
       if (mounted) _cardCtrl.forward();
     });
+
+    // Geocode the label only when we have no exact coordinates
+    // and the static table also didn't find a match
+    if (widget.locationLat == null &&
+        widget.locationLabel != null &&
+        widget.locationLabel!.isNotEmpty &&
+        _pinLocation == const LatLng(20.5937, 78.9629)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _geocodeLabel(widget.locationLabel!);
+      });
+    }
+  }
+
+  /// Geocodes [query] via Nominatim, biased towards the college location.
+  /// Geocodes [query] via Nominatim, biased towards the college location.
+  Future<void> _geocodeLabel(String query) async {
+    if (!mounted) return;
+    setState(() => _geocoding = true);
+
+    final collegeCentre =
+        collegeCentres[widget.collegeId] ?? const LatLng(20.5937, 78.9629);
+
+    // 1. Check campus landmark map
+    final landmarks = campusLocations[widget.collegeId] ?? {};
+    final q = query.toLowerCase().trim();
+    for (final entry in landmarks.entries) {
+      if (entry.key.toLowerCase() == q || entry.key.toLowerCase().contains(q)) {
+        if (mounted) {
+          setState(() {
+            _pinLocation = entry.value; // ← was wrongly using undefined `pos`
+            _resolvedLabel = entry.key; // ← use matched landmark name
+            _geocoding = false;
+          });
+          _mapCtrl.move(entry.value, 17.0);
+        }
+        return;
+      }
+    }
+
+    // 2. Nominatim
+    try {
+      final dio = Dio(
+        BaseOptions(
+          headers: {'User-Agent': 'CampusAssist/1.0'},
+          connectTimeout: const Duration(seconds: 8),
+          receiveTimeout: const Duration(seconds: 8),
+        ),
+      );
+      final response = await dio.get<List<dynamic>>(
+        'https://nominatim.openstreetmap.org/search',
+        queryParameters: {
+          'q': '$query, ${widget.collegeName}, India',
+          'format': 'json',
+          'limit': '1',
+          'viewbox':
+              '${collegeCentre.longitude - 0.1},${collegeCentre.latitude + 0.1},'
+              '${collegeCentre.longitude + 0.1},${collegeCentre.latitude - 0.1}',
+          'bounded': '0',
+        },
+      );
+
+      final results = response.data ?? [];
+      if (results.isNotEmpty && mounted) {
+        final lat = double.parse(results[0]['lat'] as String);
+        final lon = double.parse(results[0]['lon'] as String);
+        final pos = LatLng(lat, lon);
+        setState(() {
+          _pinLocation = pos;
+          _resolvedLabel = query; // ← was missing, label never updated
+          _geocoding = false;
+        });
+        _mapCtrl.move(pos, 17.0); // ← was _pinLocation (stale), now uses pos
+        return;
+      }
+    } on DioException {
+      // Fall through
+    }
+
+    // 3. Fallback: fly to college centre
+    if (mounted) {
+      setState(() {
+        _pinLocation = collegeCentre;
+        _resolvedLabel = query; // ← was missing
+        _geocoding = false;
+      });
+      _mapCtrl.move(collegeCentre, 16.5);
+    }
+  }
+
+  /// Geocodes a search query entered by the user and moves the pin.
+  // ✅ AFTER — just remove the trailing setState; _geocodeLabel now handles it
+  Future<void> _searchLocation(String query) async {
+    final q = query.trim();
+    if (q.isEmpty) return;
+    FocusScope.of(context).unfocus();
+    await _geocodeLabel(q);
+    // _resolvedLabel is already set inside _geocodeLabel
   }
 
   @override
@@ -85,6 +198,7 @@ class _CampusMapScreenState extends State<CampusMapScreen>
     _pulseCtrl.dispose();
     _cardCtrl.dispose();
     _mapCtrl.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -101,6 +215,21 @@ class _CampusMapScreenState extends State<CampusMapScreen>
   void _centreOnPin() {
     _mapCtrl.move(_pinLocation, 17.0);
     _currentZoom = 17.0;
+  }
+
+  Future<void> _openInGoogleMaps() async {
+    final uri = Uri.parse(
+      'https://maps.google.com/?q=${_pinLocation.latitude},${_pinLocation.longitude}',
+    );
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open Google Maps')),
+        );
+      }
+    }
   }
 
   String get _tileUrl => _satelliteMode
@@ -139,12 +268,12 @@ class _CampusMapScreenState extends State<CampusMapScreen>
             ],
           ),
 
-          // ── Top gradient fade (for appbar readability) ───────────────────
+          // ── Top gradient fade ─────────────────────────────────────────────
           Positioned(
             top: 0,
             left: 0,
             right: 0,
-            height: 120,
+            height: 130,
             child: IgnorePointer(
               child: Container(
                 decoration: const BoxDecoration(
@@ -157,6 +286,64 @@ class _CampusMapScreenState extends State<CampusMapScreen>
               ),
             ),
           ),
+
+          // ── Search bar (below app bar) ────────────────────────────────────
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 62,
+            left: 12,
+            right: 12,
+            child: _buildSearchBar(),
+          ),
+
+          // ── Geocoding spinner ─────────────────────────────────────────────
+          if (_geocoding)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  color: Colors.black38,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 14,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.15),
+                            blurRadius: 16,
+                          ),
+                        ],
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: AppTheme.primary,
+                            ),
+                          ),
+                          SizedBox(width: 12),
+                          Text(
+                            'Finding location…',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
 
           // ── Zoom & locate controls ────────────────────────────────────────
           Positioned(
@@ -186,7 +373,7 @@ class _CampusMapScreenState extends State<CampusMapScreen>
             ),
           ),
 
-          // ── Layer toggle ─────────────────────────────────────────────────
+          // ── Layer toggle ──────────────────────────────────────────────────
           Positioned(
             right: 16,
             bottom: 390,
@@ -199,7 +386,7 @@ class _CampusMapScreenState extends State<CampusMapScreen>
             ),
           ),
 
-          // ── Bottom info card ─────────────────────────────────────────────
+          // ── Bottom info card ──────────────────────────────────────────────
           Positioned(
             left: 0,
             right: 0,
@@ -209,15 +396,70 @@ class _CampusMapScreenState extends State<CampusMapScreen>
               child: FadeTransition(
                 opacity: _cardFade,
                 child: _LocationCard(
-                  locationLabel: widget.locationLabel,
+                  locationLabel: _resolvedLabel,
                   collegeName: widget.collegeName,
                   postTitle: widget.postTitle,
                   pinLocation: _pinLocation,
+                  onOpenMaps: _openInGoogleMaps,
                 ),
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.18),
+            blurRadius: 14,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: TextField(
+        controller: _searchCtrl,
+        onChanged: (v) => setState(() => _searchQuery = v),
+        onSubmitted: _searchLocation,
+        textInputAction: TextInputAction.search,
+        style: const TextStyle(fontSize: 13, color: AppTheme.textPrimary),
+        decoration: InputDecoration(
+          hintText: 'Search location on map…',
+          hintStyle: const TextStyle(fontSize: 13, color: AppTheme.textLight),
+          prefixIcon: const Icon(
+            Icons.search_rounded,
+            color: AppTheme.textLight,
+            size: 20,
+          ),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? GestureDetector(
+                  onTap: () {
+                    _searchCtrl.clear();
+                    setState(() => _searchQuery = '');
+                  },
+                  child: const Icon(
+                    Icons.close_rounded,
+                    color: AppTheme.textLight,
+                    size: 18,
+                  ),
+                )
+              : GestureDetector(
+                  onTap: () => _searchLocation(_searchCtrl.text),
+                  child: const Icon(
+                    Icons.arrow_forward_rounded,
+                    color: AppTheme.primary,
+                    size: 18,
+                  ),
+                ),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 14),
+        ),
       ),
     );
   }
@@ -279,7 +521,6 @@ class _CampusMapScreenState extends State<CampusMapScreen>
           return Stack(
             alignment: Alignment.center,
             children: [
-              // Pulse ring
               Transform.scale(
                 scale: scale,
                 child: Container(
@@ -295,7 +536,6 @@ class _CampusMapScreenState extends State<CampusMapScreen>
                   ),
                 ),
               ),
-              // Pin dot
               Container(
                 width: 20,
                 height: 20,
@@ -355,16 +595,18 @@ class _CampusMapScreenState extends State<CampusMapScreen>
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _LocationCard extends StatelessWidget {
-  final String? locationLabel;
+  final String locationLabel;
   final String collegeName;
   final String postTitle;
   final LatLng pinLocation;
+  final VoidCallback onOpenMaps;
 
   const _LocationCard({
     required this.locationLabel,
     required this.collegeName,
     required this.postTitle,
     required this.pinLocation,
+    required this.onOpenMaps,
   });
 
   @override
@@ -423,7 +665,9 @@ class _LocationCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            locationLabel ?? 'Campus Location',
+                            locationLabel.isEmpty
+                                ? 'Campus Location'
+                                : locationLabel,
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
@@ -500,10 +744,7 @@ class _LocationCard extends StatelessWidget {
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
-                    onPressed: () {
-                      // TODO: launch url_launcher with
-                      // 'https://maps.google.com/?q=${pinLocation.latitude},${pinLocation.longitude}'
-                    },
+                    onPressed: onOpenMaps,
                     icon: const Icon(Icons.open_in_new_rounded, size: 15),
                     label: const Text('Open in Google Maps'),
                     style: OutlinedButton.styleFrom(
@@ -519,7 +760,6 @@ class _LocationCard extends StatelessWidget {
               ],
             ),
           ),
-          // Safe area spacer
           SizedBox(height: MediaQuery.of(context).padding.bottom),
         ],
       ),

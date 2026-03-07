@@ -18,7 +18,7 @@ const _kMaxAttachments = 5;
 class PostCard extends ConsumerStatefulWidget {
   final Post post;
   final VoidCallback onTap;
-  final Future<Post> Function(String id) onUpvote;
+  final Future<void> Function(String id) onUpvote;
 
   const PostCard({
     super.key,
@@ -47,8 +47,9 @@ class _PostCardState extends ConsumerState<PostCard> {
   }
 
   Future<void> _handleUpvote() async {
-    final updated = await widget.onUpvote(_post.id);
-    if (mounted) setState(() => _post = updated);
+    // Let the notifier own all state — no local setState here.
+    // didUpdateWidget() will sync _post when the provider rebuilds.
+    await widget.onUpvote(_post.id);
   }
 
   /// Download URL for an attachment id — requires Bearer token but
@@ -67,51 +68,44 @@ class _PostCardState extends ConsumerState<PostCard> {
     final communityName = _post.collegeName.isNotEmpty
         ? _post.collegeName
         : _post.communityId.isNotEmpty
-        ? '#${_post.communityId.substring(0, 8)}'
+        ? _post.communityId.substring(0, 8)
         : null;
 
+    // LinkedIn-style: full-width white card, no rounded corners, separated by
+    // a thin gap (the gray background shows through) — exactly like LinkedIn.
     return GestureDetector(
       onTap: widget.onTap,
+      behavior: HitTestBehavior.opaque,
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        decoration: BoxDecoration(
-          color: AppTheme.cardBg,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.divider),
-          boxShadow: [
-            BoxShadow(
-              color: AppTheme.textPrimary.withOpacity(0.04),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
+        margin: const EdgeInsets.only(bottom: 8),
+        color: Colors.white,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // ── Header ────────────────────────────────────────────────────
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+              padding: const EdgeInsets.fromLTRB(16, 14, 12, 0),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Avatar
+                  // Avatar — LinkedIn uses bigger avatars (44px)
                   _post.authorPicture != null
                       ? CircleAvatar(
-                          radius: 16,
+                          radius: 22,
                           backgroundImage: NetworkImage(_post.authorPicture!),
                           backgroundColor: AppTheme.primaryLight,
                         )
                       : CircleAvatar(
-                          radius: 16,
-                          backgroundColor: AppTheme.primaryLight,
+                          radius: 22,
+                          backgroundColor: AppTheme.primary,
                           child: Text(
                             _post.authorAlias.isNotEmpty
                                 ? _post.authorAlias[0].toUpperCase()
                                 : '?',
                             style: const TextStyle(
-                              fontSize: 13,
+                              fontSize: 16,
                               fontWeight: FontWeight.w700,
-                              color: AppTheme.textOnPrimary,
+                              color: Colors.white,
                             ),
                           ),
                         ),
@@ -120,76 +114,65 @@ class _PostCardState extends ConsumerState<PostCard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Name
                         Text(
-                          '@${_post.authorAlias}',
+                          _post.authorAlias,
                           style: const TextStyle(
-                            fontSize: 13,
+                            fontSize: 14,
                             fontWeight: FontWeight.w600,
-                            color: AppTheme.textPrimary,
+                            color: Color(0xFF1D2226), // LinkedIn dark
                           ),
                         ),
-                        const SizedBox(height: 2),
+                        const SizedBox(height: 1),
+                        // Community • time
                         Row(
                           children: [
-                            Text(
-                              timeago.format(_post.createdAt),
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: AppTheme.textLight,
-                              ),
-                            ),
-                            // Community name chip
                             if (communityName != null) ...[
-                              const SizedBox(width: 6),
-                              const Text(
-                                '·',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: AppTheme.textLight,
+                              Text(
+                                communityName,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF666666),
                                 ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.primary.withOpacity(0.08),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  communityName,
-                                  style: const TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppTheme.primary,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                              const Text(
+                                ' · ',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF666666),
                                 ),
                               ),
                             ],
+                            Text(
+                              timeago.format(_post.createdAt),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF666666),
+                              ),
+                            ),
                           ],
                         ),
                       ],
                     ),
                   ),
                   const Icon(
-                    Icons.more_horiz_rounded,
+                    Icons.more_horiz,
                     size: 20,
-                    color: AppTheme.textLight,
+                    color: Color(0xFF666666),
                   ),
                 ],
               ),
             ),
+
             const SizedBox(height: 10),
 
             // ── Content ───────────────────────────────────────────────────
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 100),
+                constraints: const BoxConstraints(maxHeight: 120),
                 child: ClipRect(
                   child: MarkdownBody(
                     data: _post.content,
@@ -197,39 +180,39 @@ class _PostCardState extends ConsumerState<PostCard> {
                     styleSheet: MarkdownStyleSheet(
                       p: const TextStyle(
                         fontSize: 14,
-                        color: AppTheme.textPrimary,
-                        height: 1.45,
+                        color: Color(0xFF1D2226),
+                        height: 1.5,
                       ),
                       strong: const TextStyle(
                         fontSize: 14,
-                        color: AppTheme.textPrimary,
+                        color: Color(0xFF1D2226),
                         fontWeight: FontWeight.w700,
                       ),
                       em: const TextStyle(
                         fontSize: 14,
-                        color: AppTheme.textPrimary,
+                        color: Color(0xFF1D2226),
                         fontStyle: FontStyle.italic,
                       ),
-                      code: TextStyle(
+                      code: const TextStyle(
                         fontFamily: 'monospace',
                         fontSize: 12,
-                        backgroundColor: AppTheme.surface,
+                        backgroundColor: Color(0xFFF3F2EF),
                         color: AppTheme.primary,
                       ),
                       h1: const TextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1D2226),
                       ),
                       h2: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
-                        color: AppTheme.textPrimary,
+                        color: Color(0xFF1D2226),
                       ),
                       h3: const TextStyle(
                         fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF1D2226),
                       ),
                     ),
                   ),
@@ -246,124 +229,148 @@ class _PostCardState extends ConsumerState<PostCard> {
               ),
             ],
 
-            // ── Location tag ──────────────────────────────────────────────
+            // ── Location ──────────────────────────────────────────────────
             if (_post.locationLabel != null) ...[
               const SizedBox(height: 8),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primary.withOpacity(0.07),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: AppTheme.primary.withOpacity(0.2),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.location_on_outlined,
+                      size: 13,
+                      color: Color(0xFF666666),
                     ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.location_on_rounded,
-                        size: 12,
-                        color: AppTheme.primary,
+                    const SizedBox(width: 3),
+                    Text(
+                      _post.locationLabel!,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF666666),
                       ),
-                      const SizedBox(width: 4),
-                      Text(
-                        _post.locationLabel!,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: AppTheme.primary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ],
 
-            const SizedBox(height: 12),
-            const Divider(height: 1, indent: 14, endIndent: 14),
-
-            // ── Footer ────────────────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              child: Row(
-                children: [
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.chat_bubble_outline_rounded,
-                        size: 16,
-                        color: AppTheme.textLight,
+            // ── Like / comment counts row ─────────────────────────────────
+            if (_post.upvotes > 0 || _post.answerCount > 0)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                child: Row(
+                  children: [
+                    if (_post.upvotes > 0) ...[
+                      // LinkedIn thumb emoji + count
+                      Container(
+                        width: 18,
+                        height: 18,
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.thumb_up,
+                          size: 10,
+                          color: Colors.white,
+                        ),
                       ),
                       const SizedBox(width: 5),
                       Text(
-                        '${_post.answerCount}',
+                        '${_post.upvotes}',
                         style: const TextStyle(
-                          fontSize: 13,
-                          color: AppTheme.textSecondary,
-                          fontWeight: FontWeight.w500,
+                          fontSize: 12,
+                          color: Color(0xFF666666),
                         ),
                       ),
                     ],
-                  ),
-                  const SizedBox(width: 20),
-                  const Icon(
-                    Icons.share_outlined,
-                    size: 16,
-                    color: AppTheme.textLight,
-                  ),
-                  const Spacer(),
-                  GestureDetector(
-                    onTap: _handleUpvote,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _post.hasUpvoted
-                            ? AppTheme.primary
-                            : AppTheme.surface,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: _post.hasUpvoted
-                              ? AppTheme.primary
-                              : AppTheme.divider,
+                    const Spacer(),
+                    if (_post.answerCount > 0)
+                      Text(
+                        '${_post.answerCount} comment${_post.answerCount == 1 ? '' : 's'}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF666666),
                         ),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.arrow_upward_rounded,
-                            size: 15,
-                            color: _post.hasUpvoted
-                                ? AppTheme.textOnPrimary
-                                : AppTheme.textSecondary,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '${_post.upvotes}',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: _post.hasUpvoted
-                                  ? AppTheme.textOnPrimary
-                                  : AppTheme.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  ],
+                ),
+              ),
+
+            // ── Divider ───────────────────────────────────────────────────
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Divider(
+                height: 1,
+                thickness: 0.5,
+                color: Color(0xFFE0E0E0),
+              ),
+            ),
+
+            // ── Action bar ────────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _ActionBtn(
+                    icon: _post.hasUpvoted
+                        ? Icons.thumb_up
+                        : Icons.thumb_up_outlined,
+                    label: 'Like',
+                    active: _post.hasUpvoted,
+                    onTap: _handleUpvote,
+                  ),
+                  _ActionBtn(
+                    icon: Icons.mode_comment_outlined,
+                    label: 'Comment',
+                    onTap: widget.onTap,
                   ),
                 ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── LinkedIn-style action button ─────────────────────────────────────────────
+
+class _ActionBtn extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _ActionBtn({
+    required this.icon,
+    required this.label,
+    this.active = false,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active ? AppTheme.primary : const Color(0xFF666666);
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 20, color: color),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                color: color,
               ),
             ),
           ],

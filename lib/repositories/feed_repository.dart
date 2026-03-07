@@ -35,6 +35,49 @@ class FeedRepository {
         'feed/my',
         queryParameters: {'cursor': cursor, 'page_size': pageSize},
       );
+
+      // ── RAW RESPONSE DUMP ─────────────────────────────────────────────────
+      debugPrint('[FeedRepo:my] ══════════════ RAW RESPONSE ══════════════');
+      debugPrint('[FeedRepo:my] top-level keys: ${res.data?.keys.toList()}');
+      debugPrint(
+        '[FeedRepo:my] next_cursor=${res.data?['next_cursor']}  '
+        'total_in_cache=${res.data?['total_in_cache']}  '
+        'built_fresh=${res.data?['built_fresh']}',
+      );
+      final rawItems = res.data?['items'] as List<dynamic>? ?? [];
+      debugPrint('[FeedRepo:my] item count: ${rawItems.length}');
+      for (var i = 0; i < rawItems.length; i++) {
+        final item = rawItems[i] as Map<String, dynamic>;
+        debugPrint('[FeedRepo:my] ── item[$i] ──────────────────────────────');
+        debugPrint('[FeedRepo:my]   post_id      = ${item['post_id']}');
+        debugPrint('[FeedRepo:my]   community_id = ${item['community_id']}');
+        debugPrint('[FeedRepo:my]   user_id      = ${item['user_id']}');
+        debugPrint(
+          '[FeedRepo:my]   user_name    = ${item['user_name']}  '
+          '(present=${item.containsKey('user_name')})',
+        );
+        debugPrint(
+          '[FeedRepo:my]   user_picture = ${item['user_picture']}  '
+          '(present=${item.containsKey('user_picture')})',
+        );
+        debugPrint('[FeedRepo:my]   likes        = ${item['likes']}');
+        debugPrint(
+          '[FeedRepo:my]   liked_by_me  = ${item['liked_by_me']}  '
+          '(present=${item.containsKey('liked_by_me')})',
+        );
+        debugPrint('[FeedRepo:my]   views        = ${item['views']}');
+        debugPrint('[FeedRepo:my]   comment_count= ${item['comment_count']}');
+        debugPrint('[FeedRepo:my]   score        = ${item['score']}');
+        debugPrint('[FeedRepo:my]   seen         = ${item['seen']}');
+        debugPrint(
+          '[FeedRepo:my]   content      = '
+          '${(item['content'] as String? ?? '').substring(0, ((item['content'] as String? ?? '').length).clamp(0, 80))}…',
+        );
+        debugPrint('[FeedRepo:my]   ALL KEYS     = ${item.keys.toList()}');
+      }
+      debugPrint('[FeedRepo:my] ════════════════════════════════════════════');
+      // ─────────────────────────────────────────────────────────────────────
+
       return FeedPage.fromJson(res.data!, isIndia: false);
     } on DioException catch (e) {
       throw _mapError(e);
@@ -52,6 +95,48 @@ class FeedRepository {
         'feed/india',
         queryParameters: {'cursor': cursor, 'page_size': pageSize},
       );
+
+      // ── RAW RESPONSE DUMP ─────────────────────────────────────────────────
+      debugPrint('[FeedRepo:india] ══════════════ RAW RESPONSE ══════════════');
+      debugPrint('[FeedRepo:india] top-level keys: ${res.data?.keys.toList()}');
+      debugPrint(
+        '[FeedRepo:india] next_cursor=${res.data?['next_cursor']}  '
+        'total_in_cache=${res.data?['total_in_cache']}  '
+        'built_fresh=${res.data?['built_fresh']}',
+      );
+      final rawItemsIndia = res.data?['items'] as List<dynamic>? ?? [];
+      debugPrint('[FeedRepo:india] item count: ${rawItemsIndia.length}');
+      for (var i = 0; i < rawItemsIndia.length; i++) {
+        final item = rawItemsIndia[i] as Map<String, dynamic>;
+        debugPrint('[FeedRepo:india] ── item[$i] ───────────────────────────');
+        debugPrint('[FeedRepo:india]   post_id      = ${item['post_id']}');
+        debugPrint('[FeedRepo:india]   community_id = ${item['community_id']}');
+        debugPrint('[FeedRepo:india]   user_id      = ${item['user_id']}');
+        debugPrint(
+          '[FeedRepo:india]   user_name    = ${item['user_name']}  '
+          '(present=${item.containsKey('user_name')})',
+        );
+        debugPrint(
+          '[FeedRepo:india]   user_picture = ${item['user_picture']}  '
+          '(present=${item.containsKey('user_picture')})',
+        );
+        debugPrint('[FeedRepo:india]   likes        = ${item['likes']}');
+        debugPrint(
+          '[FeedRepo:india]   liked_by_me  = ${item['liked_by_me']}  '
+          '(present=${item.containsKey('liked_by_me')})',
+        );
+        debugPrint('[FeedRepo:india]   views        = ${item['views']}');
+        debugPrint(
+          '[FeedRepo:india]   comment_count= ${item['comment_count']}',
+        );
+        debugPrint('[FeedRepo:india]   score        = ${item['score']}');
+        debugPrint('[FeedRepo:india]   ALL KEYS     = ${item.keys.toList()}');
+      }
+      debugPrint(
+        '[FeedRepo:india] ════════════════════════════════════════════',
+      );
+      // ─────────────────────────────────────────────────────────────────────
+
       return FeedPage.fromJson(res.data!, isIndia: true);
     } on DioException catch (e) {
       throw _mapError(e);

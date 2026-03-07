@@ -152,28 +152,52 @@ class _CommunitiesScreenState extends ConsumerState<CommunitiesScreen> {
         onRefresh: () =>
             ref.read(communityViewModelProvider.notifier).fetchMyCommunities(),
         child: communitiesAsync.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.cloud_off_rounded,
-                    size: 56,
-                    color: AppTheme.textLight,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Something went wrong\n$e',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontSize: 13,
+          loading: () => LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: SizedBox(
+                height: constraints.maxHeight,
+                child: const Center(child: CircularProgressIndicator()),
+              ),
+            ),
+          ),
+          error: (e, _) => LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: SizedBox(
+                height: constraints.maxHeight,
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.cloud_off_rounded,
+                          size: 56,
+                          color: AppTheme.textLight,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Something went wrong\n$e',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextButton.icon(
+                          onPressed: () => ref
+                              .read(communityViewModelProvider.notifier)
+                              .fetchMyCommunities(),
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text('Retry'),
+                        ),
+                      ],
                     ),
                   ),
-                ],
+                ),
               ),
             ),
           ),
@@ -181,7 +205,15 @@ class _CommunitiesScreenState extends ConsumerState<CommunitiesScreen> {
             final hasJoined = communities.isNotEmpty || hasCollege;
 
             if (!hasJoined) {
-              return _EmptyState(onTap: _openOptions);
+              return LayoutBuilder(
+                builder: (context, constraints) => SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: SizedBox(
+                    height: constraints.maxHeight,
+                    child: _EmptyState(onTap: _openOptions),
+                  ),
+                ),
+              );
             }
 
             return ListView(

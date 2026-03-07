@@ -62,7 +62,6 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
 
   LatLng? _pickedLatLng;
   String _pickedLabel = '';
-  bool _isDragging = false;
   bool _geocoding = false;
 
   final _searchCtrl = TextEditingController();
@@ -156,12 +155,12 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
       final response = await dio.get<List<dynamic>>(
         'https://nominatim.openstreetmap.org/search',
         queryParameters: {
-          'q': '$query, ${widget.collegeName}',
+          'q': '$query, ${widget.collegeName}, India',
           'format': 'json',
           'limit': '1',
           'viewbox':
-              '${centre.longitude - 0.05},${centre.latitude + 0.05},'
-              '${centre.longitude + 0.05},${centre.latitude - 0.05}',
+              '${centre.longitude - 0.1},${centre.latitude + 0.1},'
+              '${centre.longitude + 0.1},${centre.latitude - 0.1}',
           'bounded': '0',
         },
       );
@@ -264,11 +263,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
               // Long-press to drop custom pin
               onLongPress: (_, pos) => _pickCustom(pos),
               onMapEvent: (evt) {
-                if (evt is MapEventMoveStart) {
-                  setState(() => _isDragging = true);
-                } else if (evt is MapEventMoveEnd) {
-                  setState(() => _isDragging = false);
-                }
+                // reserved for future drag-state handling
               },
             ),
             children: [
@@ -350,6 +345,10 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
               controller: _searchCtrl,
               query: _searchQuery,
               onChanged: (q) => setState(() => _searchQuery = q),
+              onSearch: (q) {
+                FocusScope.of(context).unfocus();
+                _geocodeAndFly(q);
+              },
               landmarks: _filteredLandmarks,
               selectedLabel: _pickedLabel,
               onSelect: _pickLandmark,
@@ -631,6 +630,7 @@ class _SearchPanel extends StatelessWidget {
   final TextEditingController controller;
   final String query;
   final ValueChanged<String> onChanged;
+  final ValueChanged<String> onSearch;
   final List<MapEntry<String, LatLng>> landmarks;
   final String selectedLabel;
   final void Function(String, LatLng) onSelect;
@@ -639,6 +639,7 @@ class _SearchPanel extends StatelessWidget {
     required this.controller,
     required this.query,
     required this.onChanged,
+    required this.onSearch,
     required this.landmarks,
     required this.selectedLabel,
     required this.onSelect,
@@ -650,43 +651,53 @@ class _SearchPanel extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Search bar
-        // Container(
-        //   decoration: BoxDecoration(
-        //     color: Colors.white,
-        //     borderRadius: BorderRadius.circular(14),
-        //     boxShadow: [
-        //       BoxShadow(
-        //         color: Colors.black.withOpacity(0.12),
-        //         blurRadius: 12,
-        //         offset: const Offset(0, 3),
-        //       ),
-        //     ],
-        //   ),
-        //   child: TextField(
-        //     controller: controller,
-        //     onChanged: onChanged,
-        //     style: const TextStyle(fontSize: 13, color: AppTheme.textPrimary),
-        //     decoration: InputDecoration(
-        //       hintText: 'Search campus locations…',
-        //       hintStyle: const TextStyle(
-        //           fontSize: 13, color: AppTheme.textLight),
-        //       prefixIcon: const Icon(Icons.search_rounded,
-        //           color: AppTheme.textLight, size: 20),
-        //       suffixIcon: query.isNotEmpty
-        //           ? GestureDetector(
-        //         onTap: () {
-        //           controller.clear();
-        //           onChanged('');
-        //         },
-        //         child: const Icon(Icons.close_rounded,
-        //             color: AppTheme.textLight, size: 18),
-        //       )
-        //           : null,
-        //       border: InputBorder.none,
-        //       contentPadding: const EdgeInsets.symmetric(vertical: 14),
-        //     ),
-        //   ),
-        // ),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.12),
+                blurRadius: 12,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: TextField(
+            controller: controller,
+            onChanged: onChanged,
+            onSubmitted: onSearch,
+            textInputAction: TextInputAction.search,
+            style: const TextStyle(fontSize: 13, color: AppTheme.textPrimary),
+            decoration: InputDecoration(
+              hintText: 'Search campus locations…',
+              hintStyle: const TextStyle(
+                fontSize: 13,
+                color: AppTheme.textLight,
+              ),
+              prefixIcon: const Icon(
+                Icons.search_rounded,
+                color: AppTheme.textLight,
+                size: 20,
+              ),
+              suffixIcon: query.isNotEmpty
+                  ? GestureDetector(
+                      onTap: () {
+                        controller.clear();
+                        onChanged('');
+                      },
+                      child: const Icon(
+                        Icons.close_rounded,
+                        color: AppTheme.textLight,
+                        size: 18,
+                      ),
+                    )
+                  : null,
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+          ),
+        ),
         // Landmark chips
         if (landmarks.isNotEmpty) ...[
           const SizedBox(height: 8),

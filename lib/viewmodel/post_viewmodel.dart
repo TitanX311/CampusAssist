@@ -8,19 +8,106 @@ import 'package:campusassist/repositories/post_remote_repository.dart';
 import 'package:campusassist/viewmodel/auth_viewmodel.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:image_picker/image_picker.dart';
+
+// ── Session Likes ─────────────────────────────────────────────────────────────
+
+/// Maps postId -> true (liked) / false (unliked) for this session.
+final sessionLikesProvider = StateProvider<Map<String, bool>>((ref) => {});
+
+// ── User Name Cache ───────────────────────────────────────────────────────────
+
+/// Global in-session cache: userId → (name, pictureUrl?)
+final _userNameCache = <String, ({String name, String? picture})>{};
+
+/// Ensures real user_name/user_picture are in [_userNameCache] for every
+/// post in [posts].  The current user is seeded instantly from [currentUser]
+/// with no network call; every other unique userId triggers exactly one
+/// GET /api/posts/{id} call (the first post we have for that user).
+Future<void> _warmUserCache({
+  required List<Post> posts,
+  required PostRemoteRepository repo,
+  String? currentUserId,
+  String? currentUserName,
+  String? currentUserPicture,
+}) async {
+  if (currentUserId != null &&
+      currentUserName != null &&
+      !_userNameCache.containsKey(currentUserId)) {
+    _userNameCache[currentUserId] = (
+      name: currentUserName,
+      picture: currentUserPicture,
+    );
+    debugPrint(
+      '[UserCache] seeded current user $currentUserId → $currentUserName',
+    );
+  }
+
+  final Map<String, String> unknownUserIdToPostId = {};
+  for (final post in posts) {
+    if (post.userId.isEmpty) continue;
+    if (_userNameCache.containsKey(post.userId)) continue;
+    unknownUserIdToPostId.putIfAbsent(post.userId, () => post.id);
+  }
+
+  if (unknownUserIdToPostId.isEmpty) return;
+
+  debugPrint(
+    '[UserCache] fetching names for ${unknownUserIdToPostId.length} unknown users',
+  );
+
+  await Future.wait(
+    unknownUserIdToPostId.entries.map((entry) async {
+      try {
+        final full = await repo.getPostById(entry.value);
+        _userNameCache[entry.key] = (
+          name: full.authorAlias,
+          picture: full.authorPicture,
+        );
+        debugPrint('[UserCache] ${entry.key} → ${full.authorAlias}');
+      } catch (e) {
+        debugPrint('[UserCache] failed for ${entry.key}: $e');
+      }
+    }),
+  );
+}
+
+/// Replace UUID-prefix aliases on posts with real names from [_userNameCache].
+List<Post> _applyUserCache(List<Post> posts) {
+  final uuidPrefixRe = RegExp(r'^[0-9a-f]{8}$');
+  return posts.map((p) {
+    final cached = _userNameCache[p.userId];
+    if (cached == null) return p;
+    if (!uuidPrefixRe.hasMatch(p.authorAlias)) return p;
+    return Post(
+      id: p.id,
+      content: p.content,
+      attachments: p.attachments,
+      authorAlias: cached.name,
+      authorPicture: cached.picture ?? p.authorPicture,
+      userId: p.userId,
+      communityId: p.communityId,
+      collegeId: p.collegeId,
+      collegeName: p.collegeName,
+      category: p.category,
+      upvotes: p.upvotes,
+      hasUpvoted: p.hasUpvoted,
+      answerCount: p.answerCount,
+      views: p.views,
+      createdAt: p.createdAt,
+      locationLabel: p.locationLabel,
+      locationLat: p.locationLat,
+      locationLng: p.locationLng,
+    );
+  }).toList();
+}
 
 // ── Community post list ───────────────────────────────────────────────────────
 
-/// Cache so the same communityId always returns the same provider instance.
 final _postListProviderCache =
     <String, AsyncNotifierProvider<PostListNotifier, List<Post>>>{};
 
-/// Returns a cached [AsyncNotifierProvider] scoped to [communityId].
-///
-/// Usage:
-///   ref.watch(postListProvider('community_id'))
-///   ref.read(postListProvider('community_id').notifier).createPost(...)
 AsyncNotifierProvider<PostListNotifier, List<Post>> postListProvider(
   String communityId,
 ) {
@@ -34,7 +121,6 @@ AsyncNotifierProvider<PostListNotifier, List<Post>> postListProvider(
 
 class PostListNotifier extends AsyncNotifier<List<Post>> {
   final String communityId;
-
   PostListNotifier(this.communityId);
 
   PostRemoteRepository get _repo => ref.read(postRemoteRepositoryProvider);
@@ -49,8 +135,6 @@ class PostListNotifier extends AsyncNotifier<List<Post>> {
     );
   }
 
-  /// Creates a post in this community and prepends it to the local list.
-  /// [onFileProgress] is forwarded to the attachment uploader for progress UI.
   Future<Post> createPost({
     required String content,
     String category = 'general',
@@ -70,15 +154,12 @@ class PostListNotifier extends AsyncNotifier<List<Post>> {
       attachments: attachments,
       onFileProgress: onFileProgress,
     );
-    // Prepend into this community's list
     state = state.whenData((posts) => [post, ...posts]);
-    // Also push into both merged feeds so they update immediately
     ref.read(feedProvider.notifier).prependPost(post);
     ref.read(globalFeedProvider.notifier).prependPost(post);
     return post;
   }
 
-  /// Deletes a post and removes it from the local list.
   Future<void> deletePost(String postId) async {
     await _repo.deletePost(postId);
     state = state.whenData(
@@ -86,48 +167,58 @@ class PostListNotifier extends AsyncNotifier<List<Post>> {
     );
   }
 
-  /// Toggles like with an optimistic update; reverts on failure.
   Future<void> toggleLike(String postId) async {
-    // Capture current state before the optimistic update
-    final currentPost = state.value?.firstWhere(
-      (p) => p.id == postId,
-      orElse: () => throw StateError('Post $postId not found'),
+    final posts = state.value ?? [];
+    final idx = posts.indexWhere((p) => p.id == postId);
+    if (idx == -1) return;
+    final wasUpvoted = posts[idx].hasUpvoted;
+    _applyLike(
+      postId,
+      likes: wasUpvoted ? posts[idx].upvotes - 1 : posts[idx].upvotes + 1,
+      liked: !wasUpvoted,
     );
-    final wasUpvoted = currentPost?.hasUpvoted ?? false;
+    try {
+      final result = await _repo.likePost(postId, hasUpvoted: wasUpvoted);
+      _applyLike(postId, likes: result.likes, liked: result.liked);
+      ref
+          .read(sessionLikesProvider.notifier)
+          .update((m) => {...m, postId: result.liked});
+      ref
+          .read(feedProvider.notifier)
+          .syncLike(postId, result.likes, result.liked);
+      ref
+          .read(globalFeedProvider.notifier)
+          .syncLike(postId, result.likes, result.liked);
+    } catch (_) {
+      _applyLike(postId, likes: posts[idx].upvotes, liked: wasUpvoted);
+    }
+  }
 
-    // Optimistic update
+  void syncLike(String postId, int likes, bool liked) {
+    _applyLike(postId, likes: likes, liked: liked);
+    ref
+        .read(sessionLikesProvider.notifier)
+        .update((m) => {...m, postId: liked});
+  }
+
+  void syncLikeFromDetail(
+    String postId, {
+    required int likes,
+    required bool liked,
+  }) => syncLike(postId, likes, liked);
+
+  void _applyLike(String postId, {required int likes, required bool liked}) {
     state = state.whenData(
       (posts) => posts
           .map(
             (p) => p.id == postId
-                ? p.copyWith(
-                    upvotes: wasUpvoted ? p.upvotes - 1 : p.upvotes + 1,
-                    hasUpvoted: !wasUpvoted,
-                  )
+                ? p.copyWith(upvotes: likes, hasUpvoted: liked)
                 : p,
           )
           .toList(),
     );
-    try {
-      await _repo.likePost(postId, hasUpvoted: wasUpvoted);
-    } catch (_) {
-      // Revert on failure
-      state = state.whenData(
-        (posts) => posts
-            .map(
-              (p) => p.id == postId
-                  ? p.copyWith(
-                      upvotes: wasUpvoted ? p.upvotes + 1 : p.upvotes - 1,
-                      hasUpvoted: wasUpvoted,
-                    )
-                  : p,
-            )
-            .toList(),
-      );
-    }
   }
 
-  /// Updates a post and reflects the change locally.
   Future<Post> updatePost(String postId, {String? content}) async {
     final updated = await _repo.updatePost(postId, content: content);
     state = state.whenData(
@@ -166,7 +257,7 @@ class FeedState {
   );
 }
 
-// ── My Feed (personalised — /api/feed/my) ─────────────────────────────────────
+// ── My Feed (/api/feed/my) ────────────────────────────────────────────────────
 
 final feedProvider = AsyncNotifierProvider<FeedNotifier, FeedState>(
   FeedNotifier.new,
@@ -176,19 +267,16 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
   FeedRepository get _feedRepo => ref.read(feedRepositoryProvider);
   CommunityRemoteRepository get _communityRepo =>
       ref.read(communityRemoteRepositoryProvider);
+  PostRemoteRepository get _postRepo => ref.read(postRemoteRepositoryProvider);
 
-  /// communityId → communityName cache, populated lazily.
   final _nameCache = <String, String>{};
 
   String? get _userType => ref.read(authViewModelProvider).value?.userType;
 
   @override
   Future<FeedState> build() {
-    debugPrint('[FeedNotifier] build() — initial load, userType=$_userType');
+    debugPrint('[FeedNotifier] build() userType=$_userType');
     if (_userType != null && _userType != 'USER') {
-      debugPrint(
-        '[FeedNotifier] userType=$_userType — feed API not available, returning empty',
-      );
       return Future.value(const FeedState(hasMore: false));
     }
     return _load(cursor: 0, existing: const FeedState());
@@ -198,46 +286,55 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
     required int cursor,
     required FeedState existing,
   }) async {
-    debugPrint('[FeedNotifier] _load() cursor=$cursor');
-
-    // Warm the community-name cache (best-effort, non-blocking)
     if (_nameCache.isEmpty) {
-      debugPrint('[FeedNotifier] warming community-name cache');
       try {
         final communities = await _communityRepo.getMyCommunities();
         for (final c in communities) {
           _nameCache[c.id] = c.name;
         }
-        debugPrint(
-          '[FeedNotifier] name cache warmed — ${_nameCache.length} communities',
-        );
-      } catch (e) {
-        debugPrint('[FeedNotifier] name cache warm failed: $e');
-      }
+      } catch (_) {}
     }
 
     final page = await _feedRepo.getMyFeed(cursor: cursor, pageSize: 20);
-    debugPrint(
-      '[FeedNotifier] GET /feed/my → ${page.items.length} items, '
-      'nextCursor=${page.nextCursor}, hasMore=${page.hasMore}, '
-      'totalInCache=${page.totalInCache}, builtFresh=${page.builtFresh}',
+    final sessionLikes = ref.read(sessionLikesProvider);
+
+    debugPrint('[FeedNotifier] ══════ PARSED FEED ITEMS (My Feed) ══════');
+    var newPosts = page.items.map((item) {
+      final post = item.toPost(
+        communityName: _nameCache[item.communityId] ?? '',
+      );
+      debugPrint(
+        '[FeedNotifier]  post_id=${post.id}  '
+        'likes=${post.upvotes}  hasUpvoted=${post.hasUpvoted}  '
+        'authorAlias=${post.authorAlias}  userId=${post.userId}',
+      );
+      return post;
+    }).toList();
+    debugPrint('[FeedNotifier] ══════════════════════════════════════════');
+
+    // Resolve real usernames (1 GET /posts/{id} per unique unknown userId)
+    final currentUser = ref.read(authViewModelProvider).value;
+    await _warmUserCache(
+      posts: newPosts,
+      repo: _postRepo,
+      currentUserId: currentUser?.id,
+      currentUserName: currentUser?.name,
+      currentUserPicture: currentUser?.pictureURL,
     );
+    newPosts = _applyUserCache(newPosts);
 
-    final newPosts = page.items
-        .map(
-          (item) =>
-              item.toPost(communityName: _nameCache[item.communityId] ?? ''),
-        )
-        .toList();
+    var merged = cursor == 0 ? newPosts : [...existing.posts, ...newPosts];
 
-    final merged = cursor == 0 ? newPosts : [...existing.posts, ...newPosts];
+    final seenIds = <String>{};
+    var deduped = merged.where((p) => seenIds.add(p.id)).toList();
 
-    // De-duplicate by id
-    final seen = <String>{};
-    final deduped = merged.where((p) => seen.add(p.id)).toList();
-    debugPrint(
-      '[FeedNotifier] merged list → ${deduped.length} posts (${merged.length - deduped.length} dupes removed)',
-    );
+    // Re-apply session liked STATE (server owns count)
+    deduped = deduped.map((p) {
+      final s = sessionLikes[p.id];
+      return s != null ? p.copyWith(hasUpvoted: s) : p;
+    }).toList();
+
+    deduped.sort((a, b) => b.upvotes.compareTo(a.upvotes));
 
     return FeedState(
       posts: deduped,
@@ -248,86 +345,89 @@ class FeedNotifier extends AsyncNotifier<FeedState> {
   }
 
   Future<void> refresh() async {
-    debugPrint('[FeedNotifier] refresh()');
     state = const AsyncLoading();
+    await _feedRepo.invalidateMyCache();
     state = await AsyncValue.guard(
       () => _load(cursor: 0, existing: const FeedState()),
     );
-    debugPrint('[FeedNotifier] refresh() done — invalidating server cache');
-    _feedRepo.invalidateMyCache();
   }
 
   Future<void> loadMore() async {
     final s = state.value;
-    if (s == null || s.isLoadingMore || !s.hasMore || s.nextCursor == null) {
-      debugPrint(
-        '[FeedNotifier] loadMore() skipped — '
-        'isLoadingMore=${s?.isLoadingMore}, hasMore=${s?.hasMore}, nextCursor=${s?.nextCursor}',
-      );
+    if (s == null || s.isLoadingMore || !s.hasMore || s.nextCursor == null)
       return;
-    }
-    debugPrint('[FeedNotifier] loadMore() cursor=${s.nextCursor}');
     state = AsyncData(s.copyWith(isLoadingMore: true));
     try {
       final next = await _load(cursor: s.nextCursor!, existing: s);
       state = AsyncData(next);
-      debugPrint(
-        '[FeedNotifier] loadMore() done — total posts=${next.posts.length}',
-      );
     } catch (e) {
-      debugPrint('[FeedNotifier] loadMore() error: $e');
       state = AsyncData(s.copyWith(isLoadingMore: false));
     }
   }
 
-  /// Prepends a newly created post so the feed reflects it immediately.
   void prependPost(Post post) {
-    debugPrint('[FeedNotifier] prependPost() postId=${post.id}');
     state = state.whenData((s) {
-      if (s.posts.any((p) => p.id == post.id)) {
-        debugPrint('[FeedNotifier] prependPost() — already exists, skipping');
-        return s;
-      }
+      if (s.posts.any((p) => p.id == post.id)) return s;
       return s.copyWith(posts: [post, ...s.posts]);
     });
-    // Invalidate server cache so next pull includes the new post
     _feedRepo.invalidateMyCache();
   }
 
   Future<void> toggleLike(String postId) async {
-    debugPrint(
-      '[FeedNotifier] toggleLike() postId=$postId wasUpvoted=${_wasUpvoted(postId)}',
+    final wasUpvoted = _getPost(postId)?.hasUpvoted ?? false;
+    final currentUpvotes = _getPost(postId)?.upvotes ?? 0;
+    _applyLike(
+      postId,
+      likes: wasUpvoted ? currentUpvotes - 1 : currentUpvotes + 1,
+      liked: !wasUpvoted,
     );
-    _optimisticToggle(postId);
     try {
-      await ref
+      final result = await ref
           .read(postRemoteRepositoryProvider)
-          .likePost(postId, hasUpvoted: _wasUpvoted(postId));
-      debugPrint('[FeedNotifier] toggleLike() success');
-    } catch (e) {
-      debugPrint('[FeedNotifier] toggleLike() failed — reverting: $e');
-      _optimisticToggle(postId); // revert
+          .likePost(postId, hasUpvoted: wasUpvoted);
+      _applyLike(postId, likes: result.likes, liked: result.liked);
+      ref
+          .read(sessionLikesProvider.notifier)
+          .update((m) => {...m, postId: result.liked});
+      ref
+          .read(globalFeedProvider.notifier)
+          .syncLike(postId, result.likes, result.liked);
+    } catch (_) {
+      _applyLike(postId, likes: currentUpvotes, liked: wasUpvoted);
     }
   }
 
-  bool _wasUpvoted(String postId) =>
-      state.value?.posts
-          .firstWhere((p) => p.id == postId, orElse: () => _dummyPost)
-          .hasUpvoted ??
-      false;
+  void syncLike(String postId, int likes, bool liked) {
+    _applyLike(postId, likes: likes, liked: liked);
+    ref
+        .read(sessionLikesProvider.notifier)
+        .update((m) => {...m, postId: liked});
+  }
 
-  void _optimisticToggle(String postId) {
-    state = state.whenData(
-      (s) => s.copyWith(
-        posts: s.posts.map((p) {
-          if (p.id != postId) return p;
-          return p.copyWith(
-            upvotes: p.hasUpvoted ? p.upvotes - 1 : p.upvotes + 1,
-            hasUpvoted: !p.hasUpvoted,
-          );
-        }).toList(),
-      ),
-    );
+  void syncLikeFromExternal(String postId, int likes, bool liked) =>
+      syncLike(postId, likes, liked);
+  void toggleLikeFromDetail(
+    String postId, {
+    required int likes,
+    required bool liked,
+  }) => syncLike(postId, likes, liked);
+
+  Post? _getPost(String postId) =>
+      state.value?.posts.where((p) => p.id == postId).firstOrNull;
+
+  void _applyLike(String postId, {required int likes, required bool liked}) {
+    state = state.whenData((s) {
+      final updated =
+          s.posts
+              .map(
+                (p) => p.id == postId
+                    ? p.copyWith(upvotes: likes, hasUpvoted: liked)
+                    : p,
+              )
+              .toList()
+            ..sort((a, b) => b.upvotes.compareTo(a.upvotes));
+      return s.copyWith(posts: updated);
+    });
   }
 }
 
@@ -339,18 +439,14 @@ final globalFeedProvider = AsyncNotifierProvider<GlobalFeedNotifier, FeedState>(
 
 class GlobalFeedNotifier extends AsyncNotifier<FeedState> {
   FeedRepository get _feedRepo => ref.read(feedRepositoryProvider);
+  PostRemoteRepository get _postRepo => ref.read(postRemoteRepositoryProvider);
 
   String? get _userType => ref.read(authViewModelProvider).value?.userType;
 
   @override
   Future<FeedState> build() {
-    debugPrint(
-      '[GlobalFeedNotifier] build() — initial load, userType=$_userType',
-    );
+    debugPrint('[GlobalFeedNotifier] build() userType=$_userType');
     if (_userType != null && _userType != 'USER') {
-      debugPrint(
-        '[GlobalFeedNotifier] userType=$_userType — feed API not available, returning empty',
-      );
       return Future.value(const FeedState(hasMore: false));
     }
     return _load(cursor: 0, existing: const FeedState());
@@ -360,21 +456,43 @@ class GlobalFeedNotifier extends AsyncNotifier<FeedState> {
     required int cursor,
     required FeedState existing,
   }) async {
-    debugPrint('[GlobalFeedNotifier] _load() cursor=$cursor');
     final page = await _feedRepo.getIndiaFeed(cursor: cursor, pageSize: 20);
-    debugPrint(
-      '[GlobalFeedNotifier] GET /feed/india → ${page.items.length} items, '
-      'nextCursor=${page.nextCursor}, hasMore=${page.hasMore}, '
-      'totalInCache=${page.totalInCache}, builtFresh=${page.builtFresh}',
+    final sessionLikes = ref.read(sessionLikesProvider);
+
+    debugPrint('[GlobalFeedNotifier] ══════ PARSED FEED ITEMS (India) ══════');
+    var newPosts = page.items.map((item) {
+      final post = item.toPost();
+      debugPrint(
+        '[GlobalFeedNotifier]  post_id=${post.id}  '
+        'likes=${post.upvotes}  hasUpvoted=${post.hasUpvoted}  '
+        'authorAlias=${post.authorAlias}  userId=${post.userId}',
+      );
+      return post;
+    }).toList();
+    debugPrint('[GlobalFeedNotifier] ════════════════════════════════════════');
+
+    // Resolve real usernames
+    final currentUser = ref.read(authViewModelProvider).value;
+    await _warmUserCache(
+      posts: newPosts,
+      repo: _postRepo,
+      currentUserId: currentUser?.id,
+      currentUserName: currentUser?.name,
+      currentUserPicture: currentUser?.pictureURL,
     );
+    newPosts = _applyUserCache(newPosts);
 
-    final newPosts = page.items.map((item) => item.toPost()).toList();
+    var merged = cursor == 0 ? newPosts : [...existing.posts, ...newPosts];
 
-    final merged = cursor == 0 ? newPosts : [...existing.posts, ...newPosts];
+    final seenIds = <String>{};
+    var deduped = merged.where((p) => seenIds.add(p.id)).toList();
 
-    final seen = <String>{};
-    final deduped = merged.where((p) => seen.add(p.id)).toList();
-    debugPrint('[GlobalFeedNotifier] merged list → ${deduped.length} posts');
+    deduped = deduped.map((p) {
+      final s = sessionLikes[p.id];
+      return s != null ? p.copyWith(hasUpvoted: s) : p;
+    }).toList();
+
+    deduped.sort((a, b) => b.upvotes.compareTo(a.upvotes));
 
     return FeedState(
       posts: deduped,
@@ -385,39 +503,27 @@ class GlobalFeedNotifier extends AsyncNotifier<FeedState> {
   }
 
   Future<void> refresh() async {
-    debugPrint('[GlobalFeedNotifier] refresh()');
     state = const AsyncLoading();
+    await _feedRepo.invalidateIndiaCache();
     state = await AsyncValue.guard(
       () => _load(cursor: 0, existing: const FeedState()),
     );
-    debugPrint('[GlobalFeedNotifier] refresh() done');
   }
 
   Future<void> loadMore() async {
     final s = state.value;
-    if (s == null || s.isLoadingMore || !s.hasMore || s.nextCursor == null) {
-      debugPrint(
-        '[GlobalFeedNotifier] loadMore() skipped — '
-        'isLoadingMore=${s?.isLoadingMore}, hasMore=${s?.hasMore}, nextCursor=${s?.nextCursor}',
-      );
+    if (s == null || s.isLoadingMore || !s.hasMore || s.nextCursor == null)
       return;
-    }
-    debugPrint('[GlobalFeedNotifier] loadMore() cursor=${s.nextCursor}');
     state = AsyncData(s.copyWith(isLoadingMore: true));
     try {
       final next = await _load(cursor: s.nextCursor!, existing: s);
       state = AsyncData(next);
-      debugPrint(
-        '[GlobalFeedNotifier] loadMore() done — total posts=${next.posts.length}',
-      );
     } catch (e) {
-      debugPrint('[GlobalFeedNotifier] loadMore() error: $e');
       state = AsyncData(s.copyWith(isLoadingMore: false));
     }
   }
 
   void prependPost(Post post) {
-    debugPrint('[GlobalFeedNotifier] prependPost() postId=${post.id}');
     state = state.whenData((s) {
       if (s.posts.any((p) => p.id == post.id)) return s;
       return s.copyWith(posts: [post, ...s.posts]);
@@ -425,65 +531,71 @@ class GlobalFeedNotifier extends AsyncNotifier<FeedState> {
   }
 
   Future<void> toggleLike(String postId) async {
-    debugPrint(
-      '[GlobalFeedNotifier] toggleLike() postId=$postId wasUpvoted=${_wasUpvoted(postId)}',
+    final wasUpvoted = _getPost(postId)?.hasUpvoted ?? false;
+    final currentUpvotes = _getPost(postId)?.upvotes ?? 0;
+    _applyLike(
+      postId,
+      likes: wasUpvoted ? currentUpvotes - 1 : currentUpvotes + 1,
+      liked: !wasUpvoted,
     );
-    _optimisticToggle(postId);
     try {
-      await ref
+      final result = await ref
           .read(postRemoteRepositoryProvider)
-          .likePost(postId, hasUpvoted: _wasUpvoted(postId));
-      debugPrint('[GlobalFeedNotifier] toggleLike() success');
-    } catch (e) {
-      debugPrint('[GlobalFeedNotifier] toggleLike() failed — reverting: $e');
-      _optimisticToggle(postId); // revert
+          .likePost(postId, hasUpvoted: wasUpvoted);
+      _applyLike(postId, likes: result.likes, liked: result.liked);
+      ref
+          .read(sessionLikesProvider.notifier)
+          .update((m) => {...m, postId: result.liked});
+      ref
+          .read(feedProvider.notifier)
+          .syncLike(postId, result.likes, result.liked);
+    } catch (_) {
+      _applyLike(postId, likes: currentUpvotes, liked: wasUpvoted);
     }
   }
 
-  bool _wasUpvoted(String postId) =>
-      state.value?.posts
-          .firstWhere((p) => p.id == postId, orElse: () => _dummyPost)
-          .hasUpvoted ??
-      false;
+  void syncLike(String postId, int likes, bool liked) {
+    _applyLike(postId, likes: likes, liked: liked);
+    ref
+        .read(sessionLikesProvider.notifier)
+        .update((m) => {...m, postId: liked});
+  }
 
-  void _optimisticToggle(String postId) {
-    state = state.whenData(
-      (s) => s.copyWith(
-        posts: s.posts.map((p) {
-          if (p.id != postId) return p;
-          return p.copyWith(
-            upvotes: p.hasUpvoted ? p.upvotes - 1 : p.upvotes + 1,
-            hasUpvoted: !p.hasUpvoted,
-          );
-        }).toList(),
-      ),
-    );
+  void syncLikeFromExternal(String postId, int likes, bool liked) =>
+      syncLike(postId, likes, liked);
+  void toggleLikeFromDetail(
+    String postId, {
+    required int likes,
+    required bool liked,
+  }) => syncLike(postId, likes, liked);
+
+  Post? _getPost(String postId) =>
+      state.value?.posts.where((p) => p.id == postId).firstOrNull;
+
+  void _applyLike(String postId, {required int likes, required bool liked}) {
+    state = state.whenData((s) {
+      final updated =
+          s.posts
+              .map(
+                (p) => p.id == postId
+                    ? p.copyWith(upvotes: likes, hasUpvoted: liked)
+                    : p,
+              )
+              .toList()
+            ..sort((a, b) => b.upvotes.compareTo(a.upvotes));
+      return s.copyWith(posts: updated);
+    });
   }
 }
 
-/// A sentinel Post used in `orElse` guards — never rendered.
-final _dummyPost = Post(
-  id: '',
-  content: '',
-  authorAlias: '',
-  category: PostCategory.general,
-  createdAt: DateTime(2000),
-);
-
 // ── Comments ──────────────────────────────────────────────────────────────────
 
-/// Cache so the same (postId, communityId) always returns the same provider.
 final _commentsProviderCache =
     <
       (String, String),
       AsyncNotifierProvider<CommentsNotifier, List<Comment>>
     >{};
 
-/// Returns a cached [AsyncNotifierProvider] scoped to [postId] + [communityId].
-///
-/// Usage:
-///   ref.watch(commentsProvider(postId: 'x', communityId: 'y'))
-///   ref.read(commentsProvider(postId: 'x', communityId: 'y').notifier).addComment(...)
 AsyncNotifierProvider<CommentsNotifier, List<Comment>> commentsProvider({
   required String postId,
   required String communityId,
@@ -505,12 +617,8 @@ class CommentsNotifier extends AsyncNotifier<List<Comment>> {
   PostRemoteRepository get _repo => ref.read(postRemoteRepositoryProvider);
 
   @override
-  Future<List<Comment>> build() {
-    debugPrint(
-      '[CommentsNotifier] build() postId=$postId (should only fire once per postId)',
-    );
-    return _repo.getComments(postId, communityId: communityId);
-  }
+  Future<List<Comment>> build() =>
+      _repo.getComments(postId, communityId: communityId);
 
   Future<void> refresh() async {
     state = const AsyncLoading();

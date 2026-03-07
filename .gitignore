@@ -43,3 +43,35 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# ── Secrets & sensitive config ────────────────────────────────────────────────
+
+# Firebase / Google Services
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+
+# Android local build config (SDK paths, signing info)
+android/local.properties
+android/key.properties
+
+# Android release keystore
+*.jks
+*.keystore
+*.p12
+
+# iOS signing
+ios/Runner/*.mobileprovision
+ios/Runner/*.p8
+ios/Runner/*.p12
+ios/Runner/*.cer
+
+# Environment / secrets files
+.env
+.env.*
+*.env
+secrets.dart
+lib/core/secrets.dart
+lib/core/env.dart
+
+# Flutter --dart-define env files
+dart_defines/
