@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:campusassist/models/user_model.dart';
 import 'package:campusassist/repositories/auth_remote_repository.dart';
+import 'package:campusassist/repositories/profile_remote_repository.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -39,7 +40,8 @@ class AuthViewModel extends AsyncNotifier<UserModel?> {
 
       return user;
     } on DioException catch (e) {
-      final isAuthError = e.type == DioExceptionType.badResponse &&
+      final isAuthError =
+          e.type == DioExceptionType.badResponse &&
           (e.response?.statusCode == 401 || e.response?.statusCode == 403);
 
       if (isAuthError) {
@@ -136,6 +138,38 @@ class AuthViewModel extends AsyncNotifier<UserModel?> {
     return result.value;
   }
 
+  Future<void> updateProfile({String? name, String? college}) async {
+    final local = ref.read(authLocalRepositoryProvider);
+
+    final result = await AsyncValue.guard(() async {
+      final updated = await ref
+          .read(profileRemoteRepositoryProvider)
+          .updateProfile(name: name, college: college);
+
+      // Preserve existing tokens if the server didn't return new ones
+      final accessToken = updated.accessToken.isNotEmpty
+          ? updated.accessToken
+          : (await local.getAccessToken() ?? '');
+      final refreshToken = updated.refreshToken.isNotEmpty
+          ? updated.refreshToken
+          : (await local.getRefreshToken() ?? '');
+
+      final merged = updated.copyWith(
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+      );
+      await local.saveTokens(accessToken, refreshToken);
+      await local.saveUserProfile(merged);
+      return merged;
+    });
+
+    if (result.hasValue && result.value != null) {
+      state = AsyncData(result.value!);
+    } else if (result.hasError) {
+      throw result.error!;
+    }
+  }
+
   Future<void> signOut() async {
     final local = ref.read(authLocalRepositoryProvider);
     final remote = ref.read(authRemoteRepositoryProvider);
@@ -143,15 +177,17 @@ class AuthViewModel extends AsyncNotifier<UserModel?> {
     final refreshToken = await local.getRefreshToken();
 
     if (refreshToken != null) {
-      try {
-        await remote.signOut(refreshToken);
-      } catch (_) {
-        // even if backend logout fails we still clear local tokens
-      }
+      // remote.signOut() never throws — errors are handled inside it
+      await remote.signOut(refreshToken);
     }
 
     await local.clearTokens();
+    state = const AsyncData(null);
+  }
 
+  Future<void> signOutLocally() async {
+    final local = ref.read(authLocalRepositoryProvider);
+    await local.clearTokens();
     state = const AsyncData(null);
   }
 }

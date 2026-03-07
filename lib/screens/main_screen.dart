@@ -2,7 +2,10 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/community_model.dart';
 import '../theme/app_theme.dart';
+import '../viewmodel/community_viewmodel.dart';
 import 'home_screen.dart';
 import 'communities_screen.dart';
 import 'create_post_screen.dart';
@@ -34,6 +37,20 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
+  Future<void> _onAskTap() async {
+    // Show a community picker bottom sheet so the user can select
+    // which community they want to post in.
+    final picked = await showModalBottomSheet<Community>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _CommunityPickerSheet(),
+    );
+    if (picked != null && mounted) {
+      _openCreatePost(communityId: picked.id, communityName: picked.name);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -46,7 +63,7 @@ class _MainScreenState extends State<MainScreen> {
             child: _FloatingNavBar(
               currentIndex: _index,
               onTap: (i) => setState(() => _index = i),
-              onAskTap: _openCreatePost,
+              onAskTap: _onAskTap,
             ),
           ),
         ],
@@ -58,7 +75,7 @@ class _MainScreenState extends State<MainScreen> {
 class _FloatingNavBar extends StatefulWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
-  final VoidCallback onAskTap;
+  final Future<void> Function() onAskTap;
 
   const _FloatingNavBar({
     required this.currentIndex,
@@ -327,6 +344,137 @@ class _NavTabState extends State<_NavTab> with SingleTickerProviderStateMixin {
               color: AppTheme.primary,
               borderRadius: BorderRadius.circular(2),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Community Picker Sheet ────────────────────────────────────────────────────
+
+class _CommunityPickerSheet extends ConsumerWidget {
+  const _CommunityPickerSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final communitiesAsync = ref.watch(communityViewModelProvider);
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.fromLTRB(
+        20,
+        16,
+        20,
+        MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppTheme.divider,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Post to a Community',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Choose which community to post in',
+            style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+          ),
+          const SizedBox(height: 16),
+          communitiesAsync.when(
+            loading: () => const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+            error: (e, _) => Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'Could not load communities: $e',
+                style: const TextStyle(color: AppTheme.textSecondary),
+              ),
+            ),
+            data: (communities) {
+              if (communities.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(
+                    child: Text(
+                      'You haven\'t joined any communities yet.\nJoin one from the Community tab first.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                );
+              }
+              return ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: communities.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (_, i) {
+                  final c = communities[i];
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: AppTheme.primary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.people_rounded,
+                        color: AppTheme.primary,
+                        size: 20,
+                      ),
+                    ),
+                    title: Text(
+                      c.name,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                    subtitle: Text(
+                      c.type == 'PUBLIC' ? 'Public' : 'Private',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textSecondary,
+                      ),
+                    ),
+                    trailing: const Icon(
+                      Icons.chevron_right_rounded,
+                      color: AppTheme.textLight,
+                    ),
+                    onTap: () => Navigator.pop(context, c),
+                  );
+                },
+              );
+            },
           ),
         ],
       ),

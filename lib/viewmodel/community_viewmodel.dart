@@ -2,48 +2,43 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 
 import '../models/community_model.dart';
 import '../repositories/community_remote_repository.dart';
 
 final communityViewModelProvider =
     AsyncNotifierProvider<CommunityViewModel, List<Community>>(
-  CommunityViewModel.new,
-);
+      CommunityViewModel.new,
+    );
 
 class CommunityViewModel extends AsyncNotifier<List<Community>> {
   @override
   FutureOr<List<Community>> build() async {
     return _repository.getMyCommunities();
   }
-  CommunityRemoteRepository get _repository => 
+
+  CommunityRemoteRepository get _repository =>
       ref.read(communityRemoteRepositoryProvider);
 
-  /// Fetch user's joined communities
+  /// Silently refresh the list without triggering AsyncLoading
   Future<void> fetchMyCommunities() async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() => _repository.getMyCommunities());
+    final fresh = await _repository.getMyCommunities();
+    state = AsyncValue.data(fresh);
   }
 
-  /// Join a community
-  Future<void> joinCommunity(String communityId) async {
-    try {
-      await _repository.joinCommunity(communityId);
-      await fetchMyCommunities(); // refresh list
-    } catch (e) {
-      rethrow;
-    }
+  /// Join a community. Returns the updated [Community] so callers can check
+  /// whether the user landed in [member_users] (joined) or [requested_users]
+  /// (pending approval for a private community).
+  Future<Community> joinCommunity(String communityId) async {
+    final result = await _repository.joinCommunity(communityId);
+    await fetchMyCommunities();
+    return result;
   }
 
   /// Leave a community
   Future<void> leaveCommunity(String communityId) async {
-    try {
-      await _repository.leaveCommunity(communityId);
-      await fetchMyCommunities(); // refresh list
-    } catch (e) {
-      rethrow;
-    }
+    await _repository.leaveCommunity(communityId);
+    await fetchMyCommunities();
   }
 
   /// Create a new community
@@ -52,7 +47,7 @@ class CommunityViewModel extends AsyncNotifier<List<Community>> {
     required String type,
   }) async {
     await _repository.createCommunity(name: name, type: type);
-    await fetchMyCommunities(); // refresh list
+    await fetchMyCommunities();
   }
 
   /// Get a specific community details

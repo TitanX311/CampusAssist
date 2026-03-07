@@ -2,23 +2,27 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/interceptors/auth_interceptor.dart';
 import '../core/server_constants.dart';
 import '../models/community_model.dart';
 
 final communityDioProvider = Provider<Dio>((ref) {
-  return Dio(
+  final dio = Dio(
     BaseOptions(
       baseUrl: ServerConstants.baseURL,
       connectTimeout: const Duration(seconds: 8),
       receiveTimeout: const Duration(seconds: 8),
     ),
   );
+  dio.interceptors.add(AuthInterceptor(ref));
+  return dio;
 });
 
-final communityRemoteRepositoryProvider =
-    Provider<CommunityRemoteRepository>((ref) {
-      return CommunityRemoteRepository(ref.watch(communityDioProvider));
-    });
+final communityRemoteRepositoryProvider = Provider<CommunityRemoteRepository>((
+  ref,
+) {
+  return CommunityRemoteRepository(ref.watch(communityDioProvider));
+});
 
 class CommunityRemoteRepository {
   final Dio _dio;
@@ -26,15 +30,16 @@ class CommunityRemoteRepository {
   CommunityRemoteRepository(this._dio);
 
   /// GET /api/community/my-communities
-  /// Fetch all communities the user has joined
   Future<List<Community>> getMyCommunities() async {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
-        '/api/community/my-communities',
+        '/community/my-communities',
       );
-
-      final communities = response.data!['communities'] as List<dynamic>;
-      return communities
+      final data = response.data!;
+      final raw =
+          (data['communities'] ?? data['items'] ?? data['data'] ?? [])
+              as List<dynamic>?;
+      return (raw ?? [])
           .map((e) => Community.fromMap(e as Map<String, dynamic>))
           .toList();
     } on DioException catch (e) {
@@ -43,13 +48,11 @@ class CommunityRemoteRepository {
   }
 
   /// GET /api/community/{community_id}
-  /// Fetch details of a specific community
   Future<Community> getCommunityById(String communityId) async {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
-        '/api/community/$communityId',
+        '/community/$communityId',
       );
-
       return Community.fromMap(response.data!);
     } on DioException catch (e) {
       throw _mapDioError(e);
@@ -57,13 +60,11 @@ class CommunityRemoteRepository {
   }
 
   /// POST /api/community/{community_id}/join
-  /// Join a community
   Future<Community> joinCommunity(String communityId) async {
     try {
       final response = await _dio.post<Map<String, dynamic>>(
-        '/api/community/$communityId/join',
+        '/community/$communityId/join',
       );
-
       return Community.fromMap(response.data!);
     } on DioException catch (e) {
       throw _mapDioError(e);
@@ -71,41 +72,53 @@ class CommunityRemoteRepository {
   }
 
   /// DELETE /api/community/{community_id}/leave
-  /// Leave a community
   Future<void> leaveCommunity(String communityId) async {
     try {
-      await _dio.delete('/api/community/$communityId/leave');
+      await _dio.delete('/community/$communityId/leave');
     } on DioException catch (e) {
       throw _mapDioError(e);
     }
   }
 
   /// POST /api/community
-  /// Create a new community
   Future<Community> createCommunity({
     required String name,
     required String type,
   }) async {
     try {
       final response = await _dio.post<Map<String, dynamic>>(
-        '/api/community',
+        '/community',
         data: {'name': name, 'type': type},
       );
       return Community.fromMap(response.data!);
     } on DioException catch (e) {
+      if (e.type == DioExceptionType.badResponse &&
+          e.response?.statusCode == 409) {
+        throw 'A community with this name already exists.';
+      }
       throw _mapDioError(e);
     }
   }
 
   String _mapDioError(DioException e) {
+    if (e.type == DioExceptionType.badResponse) {
+      switch (e.response?.statusCode) {
+        case 409:
+          return 'A community with this name already exists.';
+        case 401:
+          return 'Unauthorized. Please log in again.';
+        case 403:
+          return 'You do not have permission to do this.';
+        default:
+          return 'Server error (${e.response?.statusCode}). Please try again.';
+      }
+    }
     switch (e.type) {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.receiveTimeout:
         return 'Connection timed out. Check your network.';
       case DioExceptionType.connectionError:
         return 'Could not reach server. Is it running?';
-      case DioExceptionType.badResponse:
-        return 'Server error (${e.response?.statusCode}). Please try again.';
       default:
         return 'Network error. Please try again.';
     }

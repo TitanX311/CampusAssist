@@ -15,6 +15,7 @@ class Community {
   final List<String> posts;
   final DateTime created_at;
   final DateTime updated_at;
+
   Community({
     required this.id,
     required this.name,
@@ -52,32 +53,64 @@ class Community {
   }
 
   Map<String, dynamic> toMap() {
-  return {
-    'id': id,
-    'name': name,
-    'type': type,
-    'member_users': member_users,
-    'requested_users': requested_users,
-    'parent_colleges': parent_colleges,
-    'posts': posts,
-    'created_at': created_at.toIso8601String(),
-    'updated_at': updated_at.toIso8601String(),
-  };
-}
+    return {
+      'id': id,
+      'name': name,
+      'type': type,
+      'member_users': member_users,
+      'requested_users': requested_users,
+      'parent_colleges': parent_colleges,
+      'posts': posts,
+      'created_at': created_at.toIso8601String(),
+      'updated_at': updated_at.toIso8601String(),
+    };
+  }
 
   factory Community.fromMap(Map<String, dynamic> map) {
-  return Community(
-    id: map['id'] as String,
-    name: map['name'] as String,
-    type: map['type'] as String,
-    member_users: List<String>.from(map['member_users'] ?? []),
-    requested_users: List<String>.from(map['requested_users'] ?? []),
-    parent_colleges: List<String>.from(map['parent_colleges'] ?? []),
-    posts: List<String>.from(map['posts'] ?? []),
-    created_at: DateTime.parse(map['created_at']),
-    updated_at: DateTime.parse(map['updated_at']),
-  );
-}
+    // Support both 'id' and '_id' (MongoDB style)
+    final id = (map['id'] ?? map['_id'] ?? '').toString();
+
+    return Community(
+      id: id,
+      name: (map['name'] ?? '').toString(),
+      type: (map['type'] ?? 'PUBLIC').toString(),
+      member_users: _parseStringList(map['member_users']),
+      requested_users: _parseStringList(map['requested_users']),
+      parent_colleges: _parseStringList(map['parent_colleges']),
+      posts: _parseStringList(map['posts']),
+      created_at: _parseDate(map['created_at']),
+      updated_at: _parseDate(map['updated_at']),
+    );
+  }
+
+  /// Safely parses a list that may contain strings or maps with an id/\_id field.
+  static List<String> _parseStringList(dynamic value) {
+    if (value == null) return [];
+    if (value is List) {
+      return value
+          .map((e) {
+            if (e == null) return '';
+            if (e is String) return e;
+            if (e is Map) return (e['id'] ?? e['_id'] ?? '').toString();
+            return e.toString();
+          })
+          .where((s) => s.isNotEmpty)
+          .toList();
+    }
+    return [];
+  }
+
+  /// Safely parses a date that may be a String, int (ms), or null.
+  static DateTime _parseDate(dynamic value) {
+    if (value == null) return DateTime.now();
+    if (value is String && value.isNotEmpty) {
+      return DateTime.tryParse(value) ?? DateTime.now();
+    }
+    if (value is int) {
+      return DateTime.fromMillisecondsSinceEpoch(value);
+    }
+    return DateTime.now();
+  }
 
   String toJson() => json.encode(toMap());
 
@@ -86,7 +119,9 @@ class Community {
 
   @override
   String toString() {
-    return 'Community(id: $id, name: $name, type: $type, member_users: $member_users, requested_users: $requested_users, parent_colleges: $parent_colleges, posts: $posts, created_at: $created_at, updated_at: $updated_at)';
+    return 'Community(id: $id, name: $name, type: $type, member_users: $member_users, '
+        'requested_users: $requested_users, parent_colleges: $parent_colleges, '
+        'posts: $posts, created_at: $created_at, updated_at: $updated_at)';
   }
 
   @override

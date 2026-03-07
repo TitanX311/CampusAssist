@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:campusassist/models/post_model.dart';
 import 'package:campusassist/repositories/post_remote_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 /// Returns an [AsyncNotifierProvider] scoped to [communityId].
 ///
@@ -36,14 +37,17 @@ class PostListNotifier extends AsyncNotifier<List<Post>> {
   }
 
   /// Creates a post in this community and prepends it to the local list.
+  /// [onFileProgress] is forwarded to the attachment uploader for progress UI.
   Future<Post> createPost({
     required String content,
-    List<String> attachments = const [],
+    List<XFile> attachments = const [],
+    void Function(int fileIndex, int sent, int total)? onFileProgress,
   }) async {
     final post = await _repo.createPost(
       communityId: communityId,
       content: content,
       attachments: attachments,
+      onFileProgress: onFileProgress,
     );
     state = state.whenData((posts) => [post, ...posts]);
     return post;

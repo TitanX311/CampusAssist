@@ -133,10 +133,7 @@ class AuthRemoteRepository {
         'refresh_token': refreshToken,
         'access_token': accessToken,
       });
-    } on DioException catch (e) {
-      // print("DIO ERROR:");
-      // print(e.response?.data);
-      // print(e.message);
+    } on DioException {
       rethrow;
     } catch (e) {
       print("UNKNOWN ERROR: $e");
@@ -171,18 +168,19 @@ class AuthRemoteRepository {
   Future<void> signOut(String refreshToken) async {
     try {
       await _dio.post('/logout', data: {'refresh_token': refreshToken});
-
-      await _googleSignIn.signOut();
-
-      print("User signed out successfully");
+      print("User signed out from server successfully");
     } on DioException catch (e) {
-      print("LOGOUT ERROR:");
-      print(e.response?.data);
-      print(e.message);
-      rethrow;
+      // Server unreachable or error — log and continue with local sign-out
+      print("LOGOUT SERVER ERROR (ignored): ${e.response?.data ?? e.message}");
     } catch (e) {
-      print("UNKNOWN LOGOUT ERROR: $e");
-      rethrow;
+      print("UNKNOWN LOGOUT ERROR (ignored): $e");
+    }
+
+    // Always attempt Google sign-out locally regardless of server result
+    try {
+      await _googleSignIn.signOut();
+    } catch (e) {
+      print("Google sign-out error (ignored): $e");
     }
   }
 }

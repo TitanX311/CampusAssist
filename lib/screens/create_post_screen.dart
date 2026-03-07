@@ -5,8 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:marquee/marquee.dart';
-import '../models/post_model.dart';
-import '../repositories/post_remote_repository.dart';
+import '../viewmodel/post_viewmodel.dart';
 import '../theme/app_theme.dart';
 import 'location_picker_screen.dart';
 
@@ -23,7 +22,6 @@ class CreatePostScreen extends ConsumerStatefulWidget {
 class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
   final _contentCtrl = TextEditingController();
   final _locationCtrl = TextEditingController();
-  PostCategory _category = PostCategory.general;
   // bool _isAnonymous = true;
   bool _addLocation = false;
   bool _submitting = false;
@@ -31,6 +29,13 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
   final _formKey = GlobalKey<FormState>();
   final ImagePicker _imagePicker = ImagePicker();
   final List<XFile> _attachments = [];
+
+  // Upload progress: fileIndex → 0.0..1.0  (only populated while submitting)
+  final Map<int, double> _uploadProgress = {};
+
+  /// The index of the file currently being uploaded (-1 if none).
+  int get _uploadingFileIndex =>
+      _uploadProgress.isEmpty ? -1 : _uploadProgress.keys.last;
 
   @override
   void dispose() {
@@ -123,14 +128,22 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
       );
       return;
     }
-    setState(() => _submitting = true);
+    setState(() {
+      _submitting = true;
+      _uploadProgress.clear();
+    });
     try {
       await ref
-          .read(postRemoteRepositoryProvider)
+          .read(postListProvider(widget.communityId!).notifier)
           .createPost(
-            communityId: widget.communityId!,
             content: _contentCtrl.text.trim(),
-            attachments: const [],
+            attachments: _attachments,
+            onFileProgress: (fileIndex, sent, total) {
+              if (!mounted) return;
+              setState(() {
+                _uploadProgress[fileIndex] = total > 0 ? sent / total : 0.0;
+              });
+            },
           );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -152,9 +165,15 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
         Navigator.pop(context, true);
       }
     } catch (e) {
-      setState(() => _submitting = false);
+      setState(() {
+        _submitting = false;
+        _uploadProgress.clear();
+      });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: AppTheme.events),
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: AppTheme.events,
+        ),
       );
     }
   }
@@ -252,72 +271,6 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
                 ),
               const SizedBox(height: 20),
 
-              // Category
-              const Text(
-                'Category',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: PostCategory.values.map((cat) {
-                  final isSelected = _category == cat;
-                  final color = AppTheme.categoryColor(cat.label);
-                  return GestureDetector(
-                    onTap: () => setState(() => _category = cat),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isSelected ? color : Colors.white,
-                        borderRadius: BorderRadius.circular(22),
-                        border: Border.all(
-                          color: isSelected ? color : AppTheme.divider,
-                        ),
-                        boxShadow: isSelected
-                            ? [
-                                BoxShadow(
-                                  color: color.withOpacity(0.3),
-                                  blurRadius: 6,
-                                ),
-                              ]
-                            : [],
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            AppTheme.categoryIcon(cat.label),
-                            size: 13,
-                            color: isSelected ? Colors.white : color,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            cat.label,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: isSelected
-                                  ? Colors.white
-                                  : AppTheme.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 20),
-
               // Content
               const Text(
                 'Description *',
@@ -375,13 +328,28 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
               ),
               if (_attachments.isNotEmpty) ...[
                 const SizedBox(height: 10),
-                Text(
-                  '${_attachments.length} photo(s) attached',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppTheme.textSecondary,
-                    fontWeight: FontWeight.w500,
-                  ),
+                Row(
+                  children: [
+                    Text(
+                      '${_attachments.length} photo(s) attached',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    if (_submitting && _uploadingFileIndex >= 0) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        'Uploading ${_uploadingFileIndex + 1}/${_attachments.length}…',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.primary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 8),
                 SizedBox(
@@ -392,6 +360,11 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
                     separatorBuilder: (_, __) => const SizedBox(width: 10),
                     itemBuilder: (_, i) {
                       final img = _attachments[i];
+                      final progress = _uploadProgress[i];
+                      final isUploading =
+                          _submitting && _uploadingFileIndex == i;
+                      final isDone =
+                          _submitting && (_uploadProgress[i] ?? 0) >= 1.0;
                       return Stack(
                         children: [
                           ClipRRect(
@@ -424,26 +397,56 @@ class _CreatePostScreenState extends ConsumerState<CreatePostScreen> {
                               },
                             ),
                           ),
-                          Positioned(
-                            top: 4,
-                            right: 4,
-                            child: GestureDetector(
-                              onTap: () => _removeAttachmentAt(i),
-                              child: Container(
-                                width: 22,
-                                height: 22,
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.6),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.close_rounded,
-                                  size: 14,
-                                  color: Colors.white,
+                          // Upload progress overlay
+                          if (isUploading || (isDone))
+                            Positioned.fill(
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: Container(
+                                  color: Colors.black.withOpacity(0.45),
+                                  alignment: Alignment.center,
+                                  child: isDone
+                                      ? const Icon(
+                                          Icons.check_circle_rounded,
+                                          color: Colors.white,
+                                          size: 26,
+                                        )
+                                      : SizedBox(
+                                          width: 36,
+                                          height: 36,
+                                          child: CircularProgressIndicator(
+                                            value: progress,
+                                            strokeWidth: 3,
+                                            color: Colors.white,
+                                            backgroundColor: Colors.white
+                                                .withOpacity(0.3),
+                                          ),
+                                        ),
                                 ),
                               ),
                             ),
-                          ),
+                          // Remove button — hidden while submitting
+                          if (!_submitting)
+                            Positioned(
+                              top: 4,
+                              right: 4,
+                              child: GestureDetector(
+                                onTap: () => _removeAttachmentAt(i),
+                                child: Container(
+                                  width: 22,
+                                  height: 22,
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.6),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.close_rounded,
+                                    size: 14,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
                         ],
                       );
                     },
